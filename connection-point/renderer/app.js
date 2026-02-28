@@ -7,6 +7,8 @@ window._appState = {
 }
 
 function navigate(view) {
+  window._appState._activeView = view
+
   // Hide all views
   document.querySelectorAll('[data-view]').forEach(el => el.classList.add('hidden'))
   // Show target
@@ -21,6 +23,7 @@ function navigate(view) {
   const renders = {
     auth: window.renderAuth,
     onboarding: window.renderOnboarding,
+    overview: window.renderOverview,
     dashboard: window.renderDashboard,
     chat: window.renderChat,
     settings: window.renderSettings
@@ -43,5 +46,5 @@ document.addEventListener('DOMContentLoaded', async () => {
   const workspaces = await window.api.getWorkspaces()
   window._appState.workspaces = workspaces
 
-  navigate(workspaces.length > 0 ? 'dashboard' : 'auth')
+  navigate(workspaces.length > 0 ? 'overview' : 'auth')
 })

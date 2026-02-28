@@ -1,62 +1,62 @@
 [
   {
     "id": "gcal-1", "title": "Sprint Planning — Client Alpha", "start": "2026-03-02T10:00:00", "end": "2026-03-02T11:00:00",
-    "allDay": false, "source": "gcal", "account": "you@company.com", "workspace": "Client Alpha", "color": "#4285F4"
+    "allDay": false, "source": "gcal", "account": "you@company.com", "profile": "work", "workspace": "Client Alpha", "color": "#4285F4"
   },
   {
     "id": "gcal-2", "title": "Design Review", "start": "2026-03-02T14:00:00", "end": "2026-03-02T15:00:00",
-    "allDay": false, "source": "gcal", "account": "you@company.com", "workspace": "Client Alpha", "color": "#4285F4"
+    "allDay": false, "source": "gcal", "account": "you@company.com", "profile": "work", "workspace": "Client Alpha", "color": "#4285F4"
   },
   {
     "id": "gcal-3", "title": "Client Beta Standup", "start": "2026-03-03T09:30:00", "end": "2026-03-03T09:50:00",
-    "allDay": false, "source": "gcal", "account": "you@clientb.com", "workspace": "Client Beta", "color": "#4285F4"
+    "allDay": false, "source": "gcal", "account": "you@clientb.com", "profile": "client-b", "workspace": "Client Beta", "color": "#4285F4"
   },
   {
     "id": "gcal-4", "title": "Q1 Roadmap Sync", "start": "2026-03-04T11:00:00", "end": "2026-03-04T12:30:00",
-    "allDay": false, "source": "gcal", "account": "you@company.com", "workspace": "Client Alpha", "color": "#4285F4"
+    "allDay": false, "source": "gcal", "account": "you@company.com", "profile": "work", "workspace": "Client Alpha", "color": "#4285F4"
   },
   {
     "id": "gcal-5", "title": "1:1 with Sarah K.", "start": "2026-03-05T15:00:00", "end": "2026-03-05T15:30:00",
-    "allDay": false, "source": "gcal", "account": "you@company.com", "workspace": "Client Alpha", "color": "#4285F4"
+    "allDay": false, "source": "gcal", "account": "you@company.com", "profile": "work", "workspace": "Client Alpha", "color": "#4285F4"
   },
   {
     "id": "gcal-6", "title": "Infrastructure Review", "start": "2026-03-06T10:00:00", "end": "2026-03-06T11:00:00",
-    "allDay": false, "source": "gcal", "account": "you@clientb.com", "workspace": "Client Beta", "color": "#4285F4"
+    "allDay": false, "source": "gcal", "account": "you@clientb.com", "profile": "client-b", "workspace": "Client Beta", "color": "#4285F4"
   },
   {
     "id": "gcal-7", "title": "Sprint Retrospective", "start": "2026-03-09T13:00:00", "end": "2026-03-09T14:00:00",
-    "allDay": false, "source": "gcal", "account": "you@company.com", "workspace": "Client Alpha", "color": "#4285F4"
+    "allDay": false, "source": "gcal", "account": "you@company.com", "profile": "work", "workspace": "Client Alpha", "color": "#4285F4"
   },
   {
     "id": "gcal-8", "title": "Release Planning", "start": "2026-03-10T10:00:00", "end": "2026-03-10T11:30:00",
-    "allDay": false, "source": "gcal", "account": "you@clientb.com", "workspace": "Client Beta", "color": "#4285F4"
+    "allDay": false, "source": "gcal", "account": "you@clientb.com", "profile": "client-b", "workspace": "Client Beta", "color": "#4285F4"
   },
   {
     "id": "gcal-9", "title": "Team Offsite", "start": "2026-03-11", "end": "2026-03-12",
-    "allDay": true, "source": "gcal", "account": "you@company.com", "workspace": "Client Alpha", "color": "#4285F4"
+    "allDay": true, "source": "gcal", "account": "you@company.com", "profile": "work", "workspace": "Client Alpha", "color": "#4285F4"
   },
   {
     "id": "outlook-1", "title": "Budget Review", "start": "2026-03-02T16:00:00", "end": "2026-03-02T17:00:00",
-    "allDay": false, "source": "outlook", "account": "you@company.com", "workspace": "Client Alpha", "color": "#0078D4"
+    "allDay": false, "source": "outlook", "account": "you@company.com", "profile": "work", "workspace": "Client Alpha", "color": "#0078D4"
   },
   {
     "id": "outlook-2", "title": "Stakeholder Update", "start": "2026-03-03T14:00:00", "end": "2026-03-03T15:00:00",
-    "allDay": false, "source": "outlook", "account": "you@company.com", "workspace": "Client Beta", "color": "#0078D4"
+    "allDay": false, "source": "outlook", "account": "you@company.com", "profile": "work", "workspace": "Client Beta", "color": "#0078D4"
   },
   {
     "id": "outlook-3", "title": "Contract Review Call", "start": "2026-03-04T09:00:00", "end": "2026-03-04T10:00:00",
-    "allDay": false, "source": "outlook", "account": "you@company.com", "workspace": "Client Beta", "color": "#0078D4"
+    "allDay": false, "source": "outlook", "account": "you@company.com", "profile": "work", "workspace": "Client Beta", "color": "#0078D4"
   },
   {
     "id": "outlook-4", "title": "All Hands Meeting", "start": "2026-03-05T09:00:00", "end": "2026-03-05T10:00:00",
-    "allDay": false, "source": "outlook", "account": "you@company.com", "workspace": "Client Alpha", "color": "#0078D4"
+    "allDay": false, "source": "outlook", "account": "you@company.com", "profile": "work", "workspace": "Client Alpha", "color": "#0078D4"
   },
   {
     "id": "outlook-5", "title": "Client Alpha QBR", "start": "2026-03-10T14:00:00", "end": "2026-03-10T16:00:00",
-    "allDay": false, "source": "outlook", "account": "you@company.com", "workspace": "Client Alpha", "color": "#0078D4"
+    "allDay": false, "source": "outlook", "account": "you@company.com", "profile": "work", "workspace": "Client Alpha", "color": "#0078D4"
   },
   {
     "id": "outlook-6", "title": "Public Holiday", "start": "2026-03-17", "end": "2026-03-17",
-    "allDay": true, "source": "outlook", "account": "you@company.com", "workspace": "Client Alpha", "color": "#0078D4"
+    "allDay": true, "source": "outlook", "account": "you@company.com", "profile": "work", "workspace": "Client Alpha", "color": "#0078D4"
   }
 ]

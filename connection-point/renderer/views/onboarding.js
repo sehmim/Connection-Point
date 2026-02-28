@@ -252,12 +252,10 @@ window._renderOnboardingStep = function(step) {
 }
 
 window._selectColor = function(color) {
+  const nameInput = document.getElementById('ws-name')
+  if (nameInput) window._onboardingState.name = nameInput.value
   window._onboardingState.color = color
-  // Re-render the color swatches only
   window._renderOnboardingStep(1)
-  // Restore name value
-  const input = document.getElementById('ws-name')
-  if (input) input.value = window._onboardingState.name
 }
 
 window._detectProfiles = function() {
@@ -752,7 +750,7 @@ window._onboardingFinish = function() {
   window._appState.activeWorkspace = workspace.name
 
   window.showToast(`Workspace "${workspace.name}" created!`, 'success')
-  window.navigate('dashboard')
+  window.navigate('overview')
   // Re-render sidebar to show new workspace
   if (typeof window.renderSidebar === 'function') window.renderSidebar()
 }

@@ -44,6 +44,9 @@ window._renderDashboardUI = function(dashView) {
   const container = document.querySelector('[data-view="dashboard"]')
   if (!container) return
 
+  // Reset registry once at the top — briefing + table functions both add to it
+  window._itemRegistry = {}
+
   const filters = window._dashboardFilters
 
   // Collect all workspaces for dropdown
@@ -62,6 +65,11 @@ window._renderDashboardUI = function(dashView) {
   }
 
   // Apply filters
+  const activeProfile = window._briefingProfile || 'all'
+  const allItems = items  // unfiltered — used for navbar badge counts
+  if (activeProfile !== 'all') {
+    items = items.filter(i => i.profile === activeProfile)
+  }
   if (filters.search) {
     const q = filters.search.toLowerCase()
     items = items.filter(i =>
@@ -169,11 +177,14 @@ window._renderDashboardUI = function(dashView) {
         <span style="font-size:12px; color:var(--text-muted); margin-left:4px;">${items.length} item${items.length !== 1 ? 's' : ''}</span>
       </div>
 
+      <!-- Browser profile navbar -->
+      ${window._renderProfileNavbar(allItems)}
+
       <!-- Table + detail panel -->
       <div style="flex:1; display:flex; overflow:hidden;">
 
         <!-- Table area -->
-        <div style="flex:1; overflow-y:auto; overflow-x:auto;">
+        <div id="dash-table-scroll" style="flex:1; overflow-y:auto; overflow-x:auto; display:flex; flex-direction:column;">
           ${items.length === 0
             ? `<div style="display:flex; align-items:center; justify-content:center; height:200px; color:var(--text-muted); font-size:14px;">No items match your filters.</div>`
             : dashView === 'jira'
@@ -185,22 +196,7 @@ window._renderDashboardUI = function(dashView) {
         </div>
 
         <!-- Item detail panel -->
-        ${(function() {
-          const sel = window._selectedItem
-          const isPR = sel && sel.source === 'github' && sel.type === 'pr'
-          const panelW = !sel ? '0' : isPR ? '800px' : '520px'
-          const borderL = sel ? '1px solid var(--border)' : 'none'
-          return `<div id="item-detail-panel" style="
-            width:${panelW}; min-width:${panelW};
-            overflow:hidden;
-            border-left:${borderL};
-            background:var(--bg-surface);
-            transition:width 0.22s ease, min-width 0.22s ease;
-            display:flex; flex-shrink:0;
-          ">
-            ${window._renderItemDetail(sel)}
-          </div>`
-        })()}
+        ${window._renderDetailPanel(window._selectedItem)}
       </div>
     </div>
   `
@@ -217,27 +213,123 @@ window._dashFilterChange = function(key, value) {
 
 window._itemRegistry = {}
 
+// ── Drawer width state ────────────────────────────────────────────────────────
+window._drawerWidth = null  // null = use default for item type
+
+window._drawerDefaultWidth = function(sel) {
+  if (!sel) return 0
+  if (sel.source === 'github' && sel.type === 'pr') return 800
+  if (sel.source === 'meeting') return 320
+  return 520
+}
+
+window._renderDetailPanel = function(sel) {
+  if (!sel) {
+    return `<div id="item-detail-panel" style="width:0;min-width:0;overflow:hidden;display:flex;flex-shrink:0;position:relative;background:var(--bg-raised);"></div>`
+  }
+  const w = window._drawerWidth !== null ? window._drawerWidth : window._drawerDefaultWidth(sel)
+  return `
+    <div id="item-detail-panel" style="
+      width:${w}px; min-width:${w}px;
+      overflow:hidden;
+      border-left:1px solid var(--border);
+      background:var(--bg-raised);
+      transition:none;
+      display:flex; flex-shrink:0; position:relative;
+    ">
+      <div id="drawer-resize-handle" style="
+        position:absolute; left:0; top:0; bottom:0; width:5px;
+        cursor:col-resize; z-index:10;
+        background:transparent; transition:background 0.15s;
+      "
+        onmouseover="this.style.background='var(--accent)44'"
+        onmouseout="if(!window._drawerDragging)this.style.background='transparent'"
+        onmousedown="window._drawerResizeStart(event)"
+      ></div>
+      <div style="flex:1;overflow:hidden;display:flex;">
+        ${window._renderItemDetail(sel)}
+      </div>
+    </div>
+  `
+}
+
+window._drawerDragging = false
+
+window._drawerResizeStart = function(e) {
+  e.preventDefault()
+  window._drawerDragging = true
+  const startX = e.clientX
+  const panel = document.getElementById('item-detail-panel')
+  const startW = panel ? panel.offsetWidth : window._drawerDefaultWidth(window._selectedItem)
+  const MIN_W = 280
+  const MAX_W = 900
+
+  const onMove = (mv) => {
+    const newW = Math.min(MAX_W, Math.max(MIN_W, startW + (startX - mv.clientX)))
+    window._drawerWidth = newW
+    if (panel) {
+      panel.style.width = newW + 'px'
+      panel.style.minWidth = newW + 'px'
+    }
+  }
+
+  const onUp = () => {
+    window._drawerDragging = false
+    const handle = document.getElementById('drawer-resize-handle')
+    if (handle) handle.style.background = 'transparent'
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onUp)
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+  }
+
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+  document.addEventListener('mousemove', onMove)
+  document.addEventListener('mouseup', onUp)
+}
+
+window._reRenderCurrentView = function() {
+  const activeView = window._appState && window._appState._activeView
+  if (activeView === 'overview') {
+    window.renderOverview()
+  } else {
+    const dashView = (window._appState && window._appState.dashboardView) || 'all'
+    window._renderDashboardUI(dashView)
+  }
+}
+
 window._selectItem = function(uid) {
   const item = window._itemRegistry[uid]
   if (!item) return
-  // Toggle off if same item clicked again
   if (window._selectedItem && window._selectedItem._uid === uid) {
     window._selectedItem = null
+    window._drawerWidth = null
   } else {
+    const prevType = window._selectedItem && window._selectedItem.source
+    if (prevType !== item.source) window._drawerWidth = null
     window._selectedItem = item
   }
-  const dashView = (window._appState && window._appState.dashboardView) || 'all'
-  window._renderDashboardUI(dashView)
+  const scroll = document.getElementById('dash-table-scroll')
+  const savedScroll = scroll ? scroll.scrollTop : 0
+  window._reRenderCurrentView()
+  const newScroll = document.getElementById('dash-table-scroll')
+  if (newScroll) newScroll.scrollTop = savedScroll
 }
 
 window._closeItemDetail = function() {
   window._selectedItem = null
-  const dashView = (window._appState && window._appState.dashboardView) || 'all'
-  window._renderDashboardUI(dashView)
+  window._drawerWidth = null
+  const scroll = document.getElementById('dash-table-scroll')
+  const savedScroll = scroll ? scroll.scrollTop : 0
+  window._reRenderCurrentView()
+  const newScroll = document.getElementById('dash-table-scroll')
+  if (newScroll) newScroll.scrollTop = savedScroll
 }
 
 window._renderItemDetail = function(item) {
   if (!item) return ''
+  if (item.source === 'meeting') return window._renderMeetingDetail(item)
   if (item.source === 'jira') return window._renderJiraDetail(item)
   if (item.type === 'pr')    return window._renderPRDetail(item)
   return window._renderGHIssueDetail(item)
@@ -288,7 +380,7 @@ window._renderJiraDetail = function(item) {
   ]
 
   return `
-    <div style="width:520px; min-width:520px; display:flex; flex-direction:column; height:100%; overflow-y:auto;">
+    <div style="width:100%; min-width:0; display:flex; flex-direction:column; height:100%; overflow-y:auto;">
       <div style="padding:16px 16px 0;">
 
         <!-- Header -->
@@ -369,7 +461,7 @@ window._renderGHIssueDetail = function(item) {
   const labels = item.status === 'Open' ? ['bug', 'needs-triage'] : ['resolved']
 
   return `
-    <div style="width:520px; min-width:520px; display:flex; flex-direction:column; height:100%; overflow-y:auto;">
+    <div style="width:100%; min-width:0; display:flex; flex-direction:column; height:100%; overflow-y:auto;">
       <div style="padding:16px 16px 0;">
 
         <!-- Header -->
@@ -589,7 +681,7 @@ window._renderPRDetail = function(item) {
 
       <!-- Diff toolbar -->
       <div style="
-        padding:8px 14px; background:var(--bg-surface);
+        padding:8px 14px; background:var(--bg-raised);
         border-bottom:1px solid var(--border); flex-shrink:0;
         display:flex; align-items:center; gap:8px;
       ">
@@ -722,8 +814,582 @@ window.timeAgo = function(dateStr) {
 const thStyle = `padding:10px 14px; text-align:left; font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; border-bottom:1px solid var(--border); white-space:nowrap; position:sticky; top:0; background:var(--bg-base); z-index:1;`
 const tdStyle = `padding:10px 14px; font-size:13px; color:var(--text-primary); border-bottom:1px solid var(--border-subtle); vertical-align:middle;`
 
+// ── Morning Briefing ──────────────────────────────────────────────────────────
+
+// Browser profiles that appear in the briefing navbar
+const _BRIEFING_PROFILES = [
+  { id: 'work',     name: 'Work',     avatar: 'W', email: 'you@company.com',  color: '#6366f1' },
+  { id: 'client-a', name: 'Client A', avatar: 'C', email: 'you@clienta.com', color: '#10b981' },
+  { id: 'client-b', name: 'Client B', avatar: 'B', email: 'you@clientb.com', color: '#f59e0b' },
+]
+
+window._briefingProfile = 'all'
+
+const _BRIEFING = {
+  meetings: [
+    { time: '09:30', duration: '30m', title: 'Daily Standup',         workspace: 'Client Alpha', wsColor: '#6366f1', source: 'gcal',    attendees: 4, profile: 'work'      },
+    { time: '11:00', duration: '1h',  title: 'Q1 Roadmap Sync',       workspace: 'Client Alpha', wsColor: '#6366f1', source: 'gcal',    attendees: 7, profile: 'work'      },
+    { time: '14:00', duration: '1h',  title: 'Stakeholder Update',    workspace: 'Client Beta',  wsColor: '#10b981', source: 'outlook', attendees: 5, profile: 'client-b'  },
+    { time: '15:30', duration: '30m', title: '1:1 with Sarah K.',     workspace: 'Client Alpha', wsColor: '#6366f1', source: 'gcal',    attendees: 2, profile: 'client-a'  },
+    { time: '16:30', duration: '1h',  title: 'Infrastructure Review', workspace: 'Client Beta',  wsColor: '#10b981', source: 'outlook', attendees: 3, profile: 'client-b'  },
+  ],
+  dueThisWeek: [
+    { id: 'ALPHA-12', title: 'Auth flow — SSO integration',           workspace: 'Client Alpha', wsColor: '#6366f1', dueDate: '2026-03-01', source: 'jira',   status: 'In Progress', profile: 'work'     },
+    { id: 'BETA-08',  title: 'Add GitHub auth to API calls',          workspace: 'Client Beta',  wsColor: '#10b981', dueDate: '2026-03-02', source: 'jira',   status: 'Open',        profile: 'client-b' },
+    { id: 'ALPHA-16', title: 'Dashboard filter performance',          workspace: 'Client Alpha', wsColor: '#6366f1', dueDate: '2026-03-03', source: 'jira',   status: 'In Progress', profile: 'client-a' },
+    { id: '#201',     title: 'Webhook retry logic',                   workspace: 'Client Beta',  wsColor: '#10b981', dueDate: '2026-03-04', source: 'github', status: 'Review',      profile: 'client-b' },
+    { id: 'ALPHA-14', title: 'Fix payment gateway timeout on staging', workspace: 'Client Alpha', wsColor: '#6366f1', dueDate: '2026-03-05', source: 'jira',   status: 'In Progress', profile: 'work'    },
+  ],
+  waitingForYou: [
+    { id: '#198',     title: 'JWT middleware refactor needs your approval', workspace: 'Client Alpha', wsColor: '#6366f1', source: 'github', waiting: '3 days', action: 'Review requested', profile: 'work'     },
+    { id: 'ALPHA-11', title: 'Redis cache layer — blocked on your spec',    workspace: 'Client Alpha', wsColor: '#6366f1', source: 'jira',   waiting: '2 days', action: 'Awaiting input',   profile: 'client-a' },
+    { id: '#203',     title: 'Sendgrid key rotation — PR open for merge',   workspace: 'Client Beta',  wsColor: '#10b981', source: 'github', waiting: '1 day',  action: 'Ready to merge',   profile: 'client-b' },
+    { id: 'BETA-06',  title: 'CI config update — your sign-off needed',     workspace: 'Client Beta',  wsColor: '#10b981', source: 'jira',   waiting: '4 days', action: 'Awaiting approval', profile: 'client-b' },
+  ],
+  overdue: [
+    { id: 'ALPHA-09', title: 'Deprecate legacy auth endpoints', workspace: 'Client Alpha', wsColor: '#6366f1', dueDate: '2026-02-24', source: 'jira', status: 'Open',        profile: 'work'     },
+    { id: 'BETA-04',  title: 'Rate limiting on public API',     workspace: 'Client Beta',  wsColor: '#10b981', dueDate: '2026-02-26', source: 'jira', status: 'In Progress', profile: 'client-b' },
+  ]
+}
+
+window._renderMeetingDetail = function(meeting) {
+  if (!meeting) return ''
+  const calColors = { gcal: '#4285F4', outlook: '#0078D4' }
+  const color = calColors[meeting.source] || '#6366f1'
+  const calLabel = meeting.source === 'gcal' ? 'Google Calendar' : 'Outlook Calendar'
+  const calIcon = meeting.source === 'gcal'
+    ? `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="4" width="12" height="10" rx="2" fill="none" stroke="#4285F4" stroke-width="1.5"/><path d="M5 2v4M11 2v4" stroke="#4285F4" stroke-width="1.5" stroke-linecap="round"/><path d="M2 8h12" stroke="#4285F4" stroke-width="1"/></svg>`
+    : `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="4" width="12" height="10" rx="2" fill="none" stroke="#0078D4" stroke-width="1.5"/><path d="M5 2v4M11 2v4" stroke="#0078D4" stroke-width="1.5" stroke-linecap="round"/><path d="M2 8h12" stroke="#0078D4" stroke-width="1"/></svg>`
+
+  const p = _BRIEFING_PROFILES.find(p => p.id === meeting.profile)
+
+  // Parse duration for display
+  const dH = meeting.duration.includes('h') ? parseFloat(meeting.duration) : parseFloat(meeting.duration) / 60
+  const endH = (() => {
+    const [h, m] = meeting.time.split(':').map(Number)
+    const totalMins = h * 60 + m + dH * 60
+    const eH = Math.floor(totalMins / 60)
+    const eM = totalMins % 60
+    return `${eH}:${eM.toString().padStart(2, '0')}`
+  })()
+
+  return `
+    <div style="
+      width:100%; min-width:0; height:100%; overflow-y:auto;
+    ">
+      <div style="padding:16px 16px 0;">
+
+        <!-- Header -->
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:12px;">
+          <div style="flex:1;min-width:0;">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+              <div style="width:10px;height:10px;border-radius:50%;background:${meeting.wsColor};flex-shrink:0;"></div>
+              <span style="font-size:11px;color:var(--text-muted);">${meeting.workspace}</span>
+            </div>
+            <div style="font-size:14px;font-weight:600;color:var(--text-primary);line-height:1.4;margin-bottom:4px;">${meeting.title}</div>
+            <div style="display:flex;align-items:center;gap:5px;">
+              ${calIcon}
+              <span style="font-size:11px;color:${color};">${calLabel}</span>
+            </div>
+          </div>
+          ${window._drawerCloseBtn()}
+        </div>
+
+        <div style="border-top:1px solid var(--border-subtle);margin-bottom:14px;"></div>
+
+        <!-- Time block -->
+        <div style="
+          display:flex;align-items:center;gap:10px;
+          background:${color}12;border:1px solid ${color}30;
+          border-radius:var(--radius);padding:10px 12px;margin-bottom:14px;
+        ">
+          <i data-lucide="clock" style="width:14px;height:14px;color:${color};flex-shrink:0;"></i>
+          <div>
+            <div style="font-size:13px;font-weight:600;color:var(--text-primary);">${meeting.time} – ${endH}</div>
+            <div style="font-size:11px;color:var(--text-muted);">${meeting.duration} · Today</div>
+          </div>
+        </div>
+
+        <!-- Metadata rows -->
+        <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px;">
+          <div style="display:flex;align-items:center;gap:8px;min-height:22px;">
+            <span style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;width:72px;flex-shrink:0;">Calendar</span>
+            <div style="display:flex;align-items:center;gap:5px;">
+              ${calIcon}
+              <span style="font-size:13px;color:var(--text-secondary);">${calLabel}</span>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;min-height:22px;">
+            <span style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;width:72px;flex-shrink:0;">Attendees</span>
+            <div style="display:flex;align-items:center;gap:5px;">
+              <i data-lucide="users" style="width:13px;height:13px;color:var(--text-muted);"></i>
+              <span style="font-size:13px;color:var(--text-secondary);">${meeting.attendees} people</span>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;min-height:22px;">
+            <span style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;width:72px;flex-shrink:0;">Profile</span>
+            ${p ? `<span style="
+              display:inline-flex;align-items:center;gap:5px;
+              font-size:12px;color:${p.color};font-weight:600;
+              background:${p.color}18;border-radius:10px;padding:2px 8px;
+            ">
+              <span style="width:7px;height:7px;border-radius:50%;background:${p.color};display:inline-block;"></span>
+              ${p.name}
+            </span>` : '<span style="font-size:13px;color:var(--text-secondary);">—</span>'}
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;min-height:22px;">
+            <span style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;width:72px;flex-shrink:0;">Workspace</span>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span style="width:8px;height:8px;border-radius:50%;background:${meeting.wsColor};display:inline-block;"></span>
+              <span style="font-size:13px;color:var(--text-secondary);">${meeting.workspace}</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="border-top:1px solid var(--border-subtle);margin-bottom:14px;"></div>
+
+        <!-- Attendee avatars -->
+        <div style="margin-bottom:16px;">
+          <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px;">Attendees</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            ${['S', 'J', 'M', 'A', 'D', 'R', 'K'].slice(0, meeting.attendees).map((a, i) => {
+              const colors = ['#6366f1','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899']
+              return `<div style="
+                width:28px;height:28px;border-radius:50%;
+                background:${colors[i % colors.length]}22;
+                border:1px solid ${colors[i % colors.length]}44;
+                display:flex;align-items:center;justify-content:center;
+                font-size:11px;font-weight:600;color:${colors[i % colors.length]};
+              ">${a}</div>`
+            }).join('')}
+          </div>
+        </div>
+
+        <div style="border-top:1px solid var(--border-subtle);margin-bottom:14px;"></div>
+
+        <!-- Join button -->
+        <button style="
+          width:100%;padding:9px 12px;
+          background:${color};border:none;
+          border-radius:var(--radius);cursor:pointer;
+          font-size:13px;font-weight:600;color:#fff;
+          font-family:'IBM Plex Sans',sans-serif;
+          display:flex;align-items:center;justify-content:center;gap:6px;
+          transition:opacity 0.15s;
+        " onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+          <i data-lucide="video" style="width:14px;height:14px;"></i>
+          Join Meeting
+        </button>
+        <div style="height:16px;"></div>
+      </div>
+    </div>
+  `
+}
+
+window._briefingProfileClick = function(id) {
+  window._briefingProfile = id
+  const activeView = window._appState && window._appState._activeView
+  if (activeView === 'overview') {
+    window.renderOverview()
+  } else if (activeView === 'chat') {
+    window._renderChatUI()
+  } else {
+    const dashView = (window._appState && window._appState.dashboardView) || 'all'
+    if (dashView === 'calendar') {
+      window._renderCalendarUI()
+    } else {
+      window._renderDashboardUI(dashView)
+    }
+  }
+}
+
+window._renderProfileNavbar = function(countsSource) {
+  const activeProfile = window._briefingProfile || 'all'
+
+  const getCount = (profileId) => {
+    if (countsSource) return countsSource.filter(i => i.profile === profileId).length
+    return [_BRIEFING.meetings, _BRIEFING.dueThisWeek, _BRIEFING.waitingForYou, _BRIEFING.overdue]
+      .reduce((sum, arr) => sum + arr.filter(i => i.profile === profileId).length, 0)
+  }
+
+  return `
+    <div style="
+      display:flex; align-items:center; gap:6px;
+      padding:10px 20px; background:var(--bg-surface);
+      border-bottom:1px solid var(--border);
+      flex-shrink:0; overflow-x:auto;
+    ">
+      <!-- Chrome icon -->
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;margin-right:2px;">
+        <circle cx="8" cy="8" r="3" fill="#4285F4"/>
+        <path d="M8 5h6.5" stroke="#EA4335" stroke-width="2.5" stroke-linecap="round"/>
+        <path d="M8 5 L1.75 11" stroke="#FBBC04" stroke-width="2.5" stroke-linecap="round"/>
+        <path d="M14.5 8 Q13 13 8 11 Q3 9 1.75 11" stroke="#34A853" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+      </svg>
+
+      <button onclick="window._briefingProfileClick('all')" style="
+        display:flex; align-items:center; gap:5px;
+        padding:4px 10px; border-radius:12px; cursor:pointer;
+        font-size:12px; font-weight:600;
+        font-family:'IBM Plex Sans',sans-serif;
+        border:1px solid ${activeProfile === 'all' ? 'var(--accent)' : 'var(--border)'};
+        background:${activeProfile === 'all' ? 'var(--accent-muted)' : 'transparent'};
+        color:${activeProfile === 'all' ? 'var(--accent)' : 'var(--text-secondary)'};
+        transition:all 0.1s; white-space:nowrap;
+      ">
+        <i data-lucide="layers" style="width:11px;height:11px;"></i>
+        All Browsers
+      </button>
+
+      <div style="width:1px;height:16px;background:var(--border-subtle);flex-shrink:0;"></div>
+
+      ${_BRIEFING_PROFILES.map(p => {
+        const isActive = activeProfile === p.id
+        const itemCounts = getCount(p.id)
+        return `
+          <button onclick="window._briefingProfileClick('${p.id}')" style="
+            display:flex; align-items:center; gap:6px;
+            padding:4px 10px; border-radius:12px; cursor:pointer;
+            font-size:12px; font-weight:600;
+            font-family:'IBM Plex Sans',sans-serif;
+            border:1px solid ${isActive ? p.color : 'var(--border)'};
+            background:${isActive ? p.color + '22' : 'transparent'};
+            color:${isActive ? p.color : 'var(--text-secondary)'};
+            transition:all 0.1s; white-space:nowrap;
+          ">
+            <span style="
+              width:18px; height:18px; border-radius:50%; flex-shrink:0;
+              background:${p.color}; color:#fff;
+              display:inline-flex; align-items:center; justify-content:center;
+              font-size:9px; font-weight:700;
+            ">${p.avatar}</span>
+            ${p.name}
+            <span style="
+              font-size:10px; font-weight:700;
+              background:${isActive ? p.color + '30' : 'var(--bg-hover)'};
+              color:${isActive ? p.color : 'var(--text-muted)'};
+              border-radius:8px; padding:0 5px; min-width:16px; text-align:center;
+            ">${itemCounts}</span>
+          </button>
+        `
+      }).join('')}
+
+      <div style="flex:1;"></div>
+      <span style="font-size:11px;color:var(--text-muted);white-space:nowrap;flex-shrink:0;">
+        ${activeProfile === 'all' ? 'Showing all profiles' : `Filtered to ${_BRIEFING_PROFILES.find(p => p.id === activeProfile)?.email || ''}`}
+      </span>
+    </div>
+  `
+}
+
+window._renderMorningBriefing = function() {
+  const today    = new Date('2026-03-01')
+  const todayStr = today.toLocaleDateString('default', { weekday: 'long', month: 'long', day: 'numeric' })
+  const activeProfile = window._briefingProfile || 'all'
+
+  // ── filter by selected profile ──
+  const byProfile = (arr) => activeProfile === 'all' ? arr : arr.filter(i => i.profile === activeProfile)
+  const meetings      = byProfile(_BRIEFING.meetings)
+  const dueThisWeek   = byProfile(_BRIEFING.dueThisWeek)
+  const waitingForYou = byProfile(_BRIEFING.waitingForYou)
+  const overdue       = byProfile(_BRIEFING.overdue)
+
+  // ── helpers ──
+  const dueBadge = (dateStr) => {
+    const d = new Date(dateStr)
+    const diff = Math.floor((d - today) / 86400000)
+    if (diff < 0)   return `<span style="font-size:10px;font-weight:700;color:var(--danger);background:var(--danger-muted);border-radius:3px;padding:1px 5px;">Overdue</span>`
+    if (diff === 0) return `<span style="font-size:10px;font-weight:700;color:var(--warning);background:var(--warning-muted);border-radius:3px;padding:1px 5px;">Today</span>`
+    return `<span style="font-size:11px;color:var(--text-muted);">${d.toLocaleDateString('default',{month:'short',day:'numeric'})}</span>`
+  }
+
+  const wsDot = (color) =>
+    `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${color};flex-shrink:0;"></span>`
+
+  const sourceIcon = (source) => source === 'jira'
+    ? `<span style="font-size:9px;font-weight:700;color:#60a5fa;background:rgba(59,130,246,0.12);padding:1px 5px;border-radius:3px;flex-shrink:0;">J</span>`
+    : `<span style="font-size:9px;font-weight:700;color:#a78bfa;background:rgba(139,92,246,0.12);padding:1px 5px;border-radius:3px;flex-shrink:0;">GH</span>`
+
+  const profileChip = (profileId) => {
+    const p = _BRIEFING_PROFILES.find(p => p.id === profileId)
+    if (!p) return ''
+    return `<span style="
+      display:inline-flex; align-items:center; gap:4px; flex-shrink:0;
+      font-size:10px; color:${p.color}; font-weight:600;
+      background:${p.color}15; border-radius:10px; padding:1px 6px;
+    ">
+      <span style="width:5px;height:5px;border-radius:50%;background:${p.color};display:inline-block;"></span>
+      ${p.name}
+    </span>`
+  }
+
+  const calColors = { gcal: '#4285F4', outlook: '#0078D4' }
+
+  // ── Register all briefing items into the shared registry ──
+  // Meetings use uid 'mtg-N', jira/github items use their natural uid
+  _BRIEFING.meetings.forEach((m, i) => {
+    window._itemRegistry['mtg-' + i] = { ...m, source: 'meeting', _uid: 'mtg-' + i }
+  })
+  const briefingJiraItems = [..._BRIEFING.dueThisWeek, ..._BRIEFING.waitingForYou, ..._BRIEFING.overdue]
+    .filter(i => i.source === 'jira')
+  briefingJiraItems.forEach(item => {
+    const uid = 'j-' + item.id
+    if (!window._itemRegistry[uid]) window._itemRegistry[uid] = { ...item, _uid: uid }
+  })
+  const briefingGithubItems = [..._BRIEFING.dueThisWeek, ..._BRIEFING.waitingForYou, ..._BRIEFING.overdue]
+    .filter(i => i.source === 'github')
+  briefingGithubItems.forEach(item => {
+    const rawId = String(item.id).replace(/^#/, '')
+    const uid = 'gh-' + rawId
+    // GitHub items from briefing need type to route to the right drawer
+    if (!window._itemRegistry[uid]) window._itemRegistry[uid] = { ...item, id: rawId, type: 'issue', _uid: uid }
+  })
+
+  const selUid = window._selectedItem && window._selectedItem._uid
+
+  // ── Timeline (taller, clickable blocks) ──
+  const hours = [8,9,10,11,12,13,14,15,16,17]
+  const timeToFrac = (t) => { const [h,m] = t.split(':').map(Number); return (h + m/60 - 8) / 10 }
+
+  const timelineHTML = `
+    <div style="position:relative;height:80px;margin:0 2px;">
+      ${hours.map(h => `
+        <div style="position:absolute;top:0;bottom:0;left:${((h-8)/10)*100}%;border-left:1px solid var(--border-subtle);pointer-events:none;">
+          <span style="position:absolute;top:0;left:3px;font-size:9px;color:var(--text-muted);white-space:nowrap;">${h>12?h-12:h}${h>=12?'pm':'am'}</span>
+        </div>
+      `).join('')}
+      <div style="position:absolute;top:0;bottom:0;left:12.5%;border-left:1.5px solid var(--accent);z-index:2;pointer-events:none;">
+        <div style="position:absolute;top:-3px;left:-4px;width:7px;height:7px;border-radius:50%;background:var(--accent);"></div>
+      </div>
+      ${meetings.map((m) => {
+        const globalIdx = _BRIEFING.meetings.indexOf(m)
+        const uid = 'mtg-' + globalIdx
+        const isSelected = selUid === uid
+        const left = timeToFrac(m.time) * 100
+        const dH = m.duration.includes('h') ? parseFloat(m.duration) : parseFloat(m.duration)/60
+        const width = Math.max((dH/10)*100, 4)
+        const color = calColors[m.source] || '#6366f1'
+        const p = _BRIEFING_PROFILES.find(p => p.id === m.profile)
+        return `
+          <div onclick="window._selectItem('${uid}')" style="
+            position:absolute;top:18px;height:44px;
+            left:${left}%;width:${width}%;
+            background:${isSelected ? color + '44' : color + '22'};
+            border-left:3px solid ${color};
+            border:1px solid ${isSelected ? color : color + '55'};
+            border-left:3px solid ${color};
+            border-radius:4px;overflow:hidden;
+            display:flex;flex-direction:column;justify-content:center;padding:0 7px;gap:2px;
+            cursor:pointer;
+            box-shadow:${isSelected ? '0 0 0 2px ' + color + '55' : 'none'};
+            transition:box-shadow 0.1s, background 0.1s;
+          ">
+            ${p ? `<span style="position:absolute;top:4px;right:5px;width:5px;height:5px;border-radius:50%;background:${p.color};"></span>` : ''}
+            <span style="font-size:10px;font-weight:700;color:${color};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${m.title}</span>
+            <span style="font-size:9px;color:${color}aa;white-space:nowrap;">${m.time} · ${m.duration}</span>
+          </div>`
+      }).join('')}
+    </div>
+  `
+
+  // ── helper: uid for jira/github briefing item ──
+  const briefingItemUid = (item) => {
+    if (item.source === 'jira') return 'j-' + item.id
+    return 'gh-' + String(item.id).replace(/^#/, '')
+  }
+
+  // ── Due this week rows ──
+  const dueRowsHTML = dueThisWeek.length === 0
+    ? `<div style="font-size:12px;color:var(--text-muted);padding:8px 2px;">Nothing due this week.</div>`
+    : dueThisWeek.map(item => {
+        const uid = briefingItemUid(item)
+        const isSel = selUid === uid
+        return `
+          <div onclick="window._selectItem('${uid}')" style="
+            display:flex;align-items:center;gap:8px;padding:7px 10px;
+            border:1px solid ${isSel ? 'var(--accent)' : 'var(--border)'};
+            border-radius:var(--radius);
+            background:${isSel ? 'var(--accent-muted)' : 'var(--bg-raised)'};
+            margin-bottom:5px;cursor:pointer;transition:background 0.1s,border-color 0.1s;
+          "
+          onmouseover="this.style.background='var(--bg-hover)'"
+          onmouseout="this.style.background='${isSel ? 'var(--accent-muted)' : 'var(--bg-raised)'}'"
+          >
+            ${wsDot(item.wsColor)}
+            ${sourceIcon(item.source)}
+            <span style="font-size:11px;color:var(--text-muted);font-family:monospace;white-space:nowrap;">${item.id}</span>
+            <span style="flex:1;font-size:12px;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${item.title}</span>
+            ${profileChip(item.profile)}
+            ${dueBadge(item.dueDate)}
+          </div>
+        `
+      }).join('')
+
+  // ── Waiting for you rows ──
+  const waitingRowsHTML = waitingForYou.length === 0
+    ? `<div style="font-size:12px;color:var(--text-muted);padding:8px 2px;">Nothing waiting for you.</div>`
+    : waitingForYou.map(item => {
+        const uid = briefingItemUid(item)
+        const isSel = selUid === uid
+        return `
+          <div onclick="window._selectItem('${uid}')" style="
+            display:flex;align-items:center;gap:8px;padding:8px 10px;
+            border:1px solid ${isSel ? 'var(--accent)' : 'var(--border)'};
+            border-radius:var(--radius);
+            background:${isSel ? 'var(--accent-muted)' : 'var(--bg-raised)'};
+            margin-bottom:5px;cursor:pointer;transition:background 0.1s,border-color 0.1s;
+          "
+          onmouseover="this.style.background='var(--bg-hover)'"
+          onmouseout="this.style.background='${isSel ? 'var(--accent-muted)' : 'var(--bg-raised)'}'"
+          >
+            ${sourceIcon(item.source)}
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:12px;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${item.title}</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:1px;display:flex;align-items:center;gap:5px;">
+                ${wsDot(item.wsColor)}
+                <span>${item.workspace}</span>
+                <span style="color:var(--border);">·</span>
+                <span>${item.action}</span>
+              </div>
+            </div>
+            ${profileChip(item.profile)}
+            <span style="font-size:11px;color:var(--text-muted);white-space:nowrap;flex-shrink:0;">${item.waiting} ago</span>
+          </div>
+        `
+      }).join('')
+
+  // ── Overdue rows ──
+  const overdueRowsHTML = overdue.length === 0
+    ? `<div style="text-align:center;padding:14px 0;color:var(--success);font-size:13px;display:flex;align-items:center;justify-content:center;gap:6px;">
+        <i data-lucide="check-circle-2" style="width:14px;height:14px;"></i> All caught up!
+       </div>`
+    : overdue.map(item => {
+        const uid = briefingItemUid(item)
+        const isSel = selUid === uid
+        const d = new Date(item.dueDate)
+        const daysAgo = Math.floor((today - d) / 86400000)
+        return `
+          <div onclick="window._selectItem('${uid}')" style="
+            display:flex;align-items:center;gap:8px;padding:7px 10px;
+            border:1px solid ${isSel ? 'var(--danger)' : 'rgba(239,68,68,0.25)'};
+            border-radius:var(--radius);
+            background:${isSel ? 'rgba(239,68,68,0.1)' : 'rgba(239,68,68,0.05)'};
+            margin-bottom:5px;cursor:pointer;transition:background 0.1s,border-color 0.1s;
+          "
+          onmouseover="this.style.background='rgba(239,68,68,0.1)'"
+          onmouseout="this.style.background='${isSel ? 'rgba(239,68,68,0.1)' : 'rgba(239,68,68,0.05)'}'"
+          >
+            ${wsDot(item.wsColor)}
+            ${sourceIcon(item.source)}
+            <span style="font-size:11px;color:var(--text-muted);font-family:monospace;white-space:nowrap;">${item.id}</span>
+            <span style="flex:1;font-size:12px;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${item.title}</span>
+            ${profileChip(item.profile)}
+            <span style="font-size:11px;color:var(--danger);font-weight:600;white-space:nowrap;flex-shrink:0;">${daysAgo}d overdue</span>
+          </div>`
+      }).join('')
+
+  const sectionHead = (icon, label, count, accentColor) => `
+    <div style="display:flex;align-items:center;gap:7px;margin-bottom:10px;">
+      <div style="width:24px;height:24px;border-radius:5px;flex-shrink:0;background:${accentColor}18;display:flex;align-items:center;justify-content:center;">
+        <i data-lucide="${icon}" style="width:12px;height:12px;color:${accentColor};"></i>
+      </div>
+      <span style="font-size:12px;font-weight:600;color:var(--text-primary);">${label}</span>
+      <span style="font-size:10px;font-weight:700;color:${accentColor};background:${accentColor}18;border-radius:9px;padding:1px 6px;">${count}</span>
+    </div>
+  `
+
+  return `
+    <div style="padding:20px 20px 4px;flex-shrink:0;">
+
+      <!-- Briefing header -->
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
+        <span style="font-size:13px;color:var(--text-secondary);">☀️ ${todayStr}</span>
+        <div style="width:1px;height:12px;background:var(--border);"></div>
+        <span style="font-size:12px;color:var(--accent);">${meetings.length} meeting${meetings.length !== 1 ? 's' : ''}</span>
+        <span style="font-size:12px;color:var(--warning);">${dueThisWeek.length} due this week</span>
+        ${overdue.length > 0 ? `<span style="font-size:12px;color:var(--danger);">${overdue.length} overdue</span>` : `<span style="font-size:12px;color:var(--success);">nothing overdue</span>`}
+      </div>
+
+      <!-- Two-column layout: Meetings left, stack of 3 right -->
+      <div style="display:flex;gap:12px;margin-bottom:20px;align-items:flex-start;">
+
+        <!-- ① Meetings Today — full left column -->
+        <div style="flex:1;min-width:0;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;">
+          ${sectionHead('calendar', 'Meetings Today', meetings.length, '#4285F4')}
+          <div style="margin-bottom:12px;">${timelineHTML}</div>
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            ${meetings.length === 0
+              ? `<div style="font-size:12px;color:var(--text-muted);padding:4px 2px;">No meetings today.</div>`
+              : meetings.map(m => {
+                  const globalIdx = _BRIEFING.meetings.indexOf(m)
+                  const uid = 'mtg-' + globalIdx
+                  const isSel = selUid === uid
+                  const mColor = calColors[m.source] || '#6366f1'
+                  return `
+                    <div onclick="window._selectItem('${uid}')"
+                      style="
+                        display:flex;align-items:center;gap:8px;padding:6px 9px;border-radius:var(--radius);
+                        background:${isSel ? mColor + '18' : 'var(--bg-raised)'};
+                        border:1px solid ${isSel ? mColor + '55' : 'var(--border-subtle)'};
+                        cursor:pointer;transition:background 0.1s,border-color 0.1s;
+                      "
+                      onmouseover="this.style.background='${mColor}12';this.style.borderColor='${mColor}44'"
+                      onmouseout="this.style.background='${isSel ? mColor + '18' : 'var(--bg-raised)'}';this.style.borderColor='${isSel ? mColor + '55' : 'var(--border-subtle)'}'"
+                    >
+                      <span style="font-size:11px;font-weight:600;color:${mColor};white-space:nowrap;min-width:36px;">${m.time}</span>
+                      <div style="width:1px;height:14px;background:var(--border-subtle);flex-shrink:0;"></div>
+                      ${wsDot(m.wsColor)}
+                      <span style="flex:1;font-size:12px;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${m.title}</span>
+                      ${profileChip(m.profile)}
+                      <span style="font-size:10px;color:var(--text-muted);flex-shrink:0;">${m.duration}</span>
+                      <span style="font-size:10px;color:var(--text-muted);flex-shrink:0;display:flex;align-items:center;gap:3px;">
+                        <i data-lucide="users" style="width:10px;height:10px;"></i>${m.attendees}
+                      </span>
+                      <i data-lucide="chevron-right" style="width:11px;height:11px;color:var(--text-muted);flex-shrink:0;"></i>
+                    </div>
+                  `
+                }).join('')
+            }
+          </div>
+        </div>
+
+        <!-- Right column: stack of 3 -->
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:12px;">
+
+          <!-- ② Waiting For You -->
+          <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;">
+            ${sectionHead('clock', 'Waiting For You', waitingForYou.length, '#f59e0b')}
+            ${waitingRowsHTML}
+          </div>
+
+          <!-- ③ Due This Week -->
+          <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;">
+            ${sectionHead('calendar-clock', 'Due This Week', dueThisWeek.length, '#f59e0b')}
+            ${dueRowsHTML}
+          </div>
+
+          <!-- ④ Overdue -->
+          <div style="background:var(--bg-surface);border:1px solid var(--border-subtle);border-color:rgba(239,68,68,0.2);border-radius:var(--radius-lg);padding:16px;align-self:stretch;">
+            ${sectionHead('alert-circle', 'Overdue', overdue.length, '#ef4444')}
+            ${overdueRowsHTML}
+          </div>
+
+        </div>
+
+      </div>
+
+      <!-- Divider before table -->
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:0;padding-bottom:0;">
+        <div style="flex:1;height:1px;background:var(--border-subtle);"></div>
+        <span style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.07em;">All Items</span>
+        <div style="flex:1;height:1px;background:var(--border-subtle);"></div>
+      </div>
+
+    </div>
+  `
+}
+
 window._renderAllTable = function(items) {
-  window._itemRegistry = {}
   items.forEach(item => {
     const uid = (item.source === 'jira' ? 'j-' : 'gh-') + item.id
     window._itemRegistry[uid] = { ...item, _uid: uid }
@@ -747,9 +1413,10 @@ window._renderAllTable = function(items) {
           const uid = (item.source === 'jira' ? 'j-' : 'gh-') + item.id
           const isSelected = window._selectedItem && window._selectedItem._uid === uid
           return `
-          <tr style="cursor:pointer; transition:background 0.1s; background:${isSelected ? 'var(--accent-muted)' : 'transparent'};"
-            onmouseover="if(!${isSelected}) this.style.background='var(--bg-hover)'"
-            onmouseout="if(!${isSelected}) this.style.background='transparent'"
+          <tr data-uid="${uid}" data-selected="${isSelected ? '1' : '0'}"
+            style="cursor:pointer; transition:background 0.1s; background:${isSelected ? 'var(--accent-muted)' : 'transparent'};"
+            onmouseover="if(this.getAttribute('data-selected')==='0') this.style.background='var(--bg-hover)'"
+            onmouseout="if(this.getAttribute('data-selected')==='0') this.style.background='transparent'"
             onclick="window._selectItem('${uid}')"
           >
             <td style="${tdStyle}">
@@ -773,7 +1440,6 @@ window._renderAllTable = function(items) {
 }
 
 window._renderJiraTable = function(items) {
-  window._itemRegistry = {}
   items.forEach(item => {
     const uid = 'j-' + item.id
     window._itemRegistry[uid] = { ...item, _uid: uid, source: 'jira' }
@@ -796,9 +1462,10 @@ window._renderJiraTable = function(items) {
           const uid = 'j-' + item.id
           const isSelected = window._selectedItem && window._selectedItem._uid === uid
           return `
-          <tr style="cursor:pointer; transition:background 0.1s; background:${isSelected ? 'var(--accent-muted)' : 'transparent'};"
-            onmouseover="if(!${isSelected}) this.style.background='var(--bg-hover)'"
-            onmouseout="if(!${isSelected}) this.style.background='transparent'"
+          <tr data-uid="${uid}" data-selected="${isSelected ? '1' : '0'}"
+            style="cursor:pointer; transition:background 0.1s; background:${isSelected ? 'var(--accent-muted)' : 'transparent'};"
+            onmouseover="if(this.getAttribute('data-selected')==='0') this.style.background='var(--bg-hover)'"
+            onmouseout="if(this.getAttribute('data-selected')==='0') this.style.background='transparent'"
             onclick="window._selectItem('${uid}')"
           >
             <td style="${tdStyle} font-family:monospace; color:var(--text-muted);">${item.id}</td>
@@ -836,7 +1503,9 @@ window._renderCalendarUI = function() {
   const workspaces = [...new Set(events.map(e => e.workspace))]
 
   // Filter events
+  const activeProfile = window._briefingProfile || 'all'
   let filtered = events
+  if (activeProfile !== 'all') filtered = filtered.filter(e => e.profile === activeProfile)
   if (cs.accountFilter !== 'all') filtered = filtered.filter(e => e.account === cs.accountFilter)
   if (cs.workspaceFilter !== 'all') filtered = filtered.filter(e => e.workspace === cs.workspaceFilter)
 
@@ -915,6 +1584,9 @@ window._renderCalendarUI = function() {
         </select>
       </div>
 
+      <!-- Browser profile navbar -->
+      ${window._renderProfileNavbar(events)}
+
       <!-- Calendar grid + detail panel -->
       <div style="flex:1; display:flex; overflow:hidden;">
 
@@ -927,7 +1599,7 @@ window._renderCalendarUI = function() {
         <div id="cal-detail" style="
           width:260px; min-width:260px; flex-shrink:0;
           border-left:1px solid var(--border);
-          background:var(--bg-surface);
+          background:var(--bg-raised);
           overflow-y:auto;
           transition:width 0.2s;
         ">
@@ -1119,7 +1791,6 @@ window._calFilter = function(key, value) {
 // ─── GitHub table ─────────────────────────────────────────────────────────────
 
 window._renderGithubTable = function(items) {
-  window._itemRegistry = {}
   items.forEach(item => {
     const uid = 'gh-' + item.id
     window._itemRegistry[uid] = { ...item, _uid: uid, source: 'github' }
@@ -1141,9 +1812,10 @@ window._renderGithubTable = function(items) {
           const uid = 'gh-' + item.id
           const isSelected = window._selectedItem && window._selectedItem._uid === uid
           return `
-          <tr style="cursor:pointer; transition:background 0.1s; background:${isSelected ? 'var(--accent-muted)' : 'transparent'};"
-            onmouseover="if(!${isSelected}) this.style.background='var(--bg-hover)'"
-            onmouseout="if(!${isSelected}) this.style.background='transparent'"
+          <tr data-uid="${uid}" data-selected="${isSelected ? '1' : '0'}"
+            style="cursor:pointer; transition:background 0.1s; background:${isSelected ? 'var(--accent-muted)' : 'transparent'};"
+            onmouseover="if(this.getAttribute('data-selected')==='0') this.style.background='var(--bg-hover)'"
+            onmouseout="if(this.getAttribute('data-selected')==='0') this.style.background='transparent'"
             onclick="window._selectItem('${uid}')"
           >
             <td style="${tdStyle} color:var(--text-muted); white-space:nowrap; font-size:12px;">${item.repo || '—'}</td>

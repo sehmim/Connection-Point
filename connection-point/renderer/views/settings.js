@@ -480,9 +480,6 @@ window._settingsToggleIntegration = function(wsIdx, id, enabledKey) {
   const ws = window._appState.workspaces[wsIdx]
   if (!ws) return
   ws[enabledKey] = !ws[enabledKey]
-
-  // Toggle the visual elements in place without full re-render
-  const card = document.querySelectorAll(`[data-intg-card]`)[0] // fallback — use targeted re-render
   window._renderSettingsUI()
 }
 

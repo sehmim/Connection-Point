@@ -37,10 +37,27 @@ window._renderChatUI = function() {
   const container = document.querySelector('[data-view="chat"]')
   if (!container) return
 
-  const { channels, activeChannel } = window._chatState
+  const activeProfile = window._briefingProfile || 'all'
+  const allChannels = window._chatState.channels
+  const { activeChannel } = window._chatState
+
+  // Filter channels by active browser profile
+  const channels = activeProfile === 'all'
+    ? allChannels
+    : allChannels.filter(ch => ch.profile === activeProfile)
+
+  // If active channel is not in filtered set, select first visible one
+  const visibleActiveChannel = channels.find(ch => ch.id === activeChannel)
+    ? activeChannel
+    : (channels[0] ? channels[0].id : null)
 
   container.innerHTML = `
-    <div style="display:flex; height:100%; overflow:hidden;">
+    <div style="display:flex; flex-direction:column; height:100%; overflow:hidden;">
+
+      <!-- Browser profile navbar -->
+      ${typeof window._renderProfileNavbar === 'function' ? window._renderProfileNavbar(allChannels) : ''}
+
+      <div style="display:flex; flex:1; overflow:hidden;">
 
       <!-- ── Channel sidebar ── -->
       <div style="
@@ -55,18 +72,20 @@ window._renderChatUI = function() {
           flex-shrink:0;
         ">
           <div style="font-size:13px; font-weight:600; color:var(--text-primary);">Messages</div>
-          <div style="font-size:11px; color:var(--text-muted); margin-top:1px;">All platforms</div>
+          <div style="font-size:11px; color:var(--text-muted); margin-top:1px;">${channels.length} channel${channels.length !== 1 ? 's' : ''}</div>
         </div>
 
         <!-- Channel list -->
         <div style="flex:1; overflow-y:auto; padding:6px 0;">
-          ${window._renderChannelList(channels, activeChannel)}
+          ${window._renderChannelList(channels, visibleActiveChannel)}
         </div>
       </div>
 
       <!-- ── Message pane ── -->
       <div style="flex:1; display:flex; flex-direction:column; overflow:hidden; min-width:0;">
-        ${window._renderMessagePane(activeChannel)}
+        ${window._renderMessagePane(visibleActiveChannel)}
+      </div>
+
       </div>
     </div>
   `
