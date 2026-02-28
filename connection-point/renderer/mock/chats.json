@@ -1,0 +1,148 @@
+{
+  "channels": [
+    {
+      "id": "slack-general",
+      "platform": "slack",
+      "name": "general",
+      "workspace": "Client Alpha",
+      "unread": 3,
+      "lastTs": "2026-02-28T10:42:00"
+    },
+    {
+      "id": "slack-engineering",
+      "platform": "slack",
+      "name": "engineering",
+      "workspace": "Client Alpha",
+      "unread": 0,
+      "lastTs": "2026-02-28T09:15:00"
+    },
+    {
+      "id": "slack-incidents",
+      "platform": "slack",
+      "name": "incidents",
+      "workspace": "Client Alpha",
+      "unread": 1,
+      "lastTs": "2026-02-28T08:55:00"
+    },
+    {
+      "id": "slack-beta-dev",
+      "platform": "slack",
+      "name": "dev",
+      "workspace": "Client Beta",
+      "unread": 5,
+      "lastTs": "2026-02-28T11:02:00"
+    },
+    {
+      "id": "slack-beta-releases",
+      "platform": "slack",
+      "name": "releases",
+      "workspace": "Client Beta",
+      "unread": 0,
+      "lastTs": "2026-02-27T17:30:00"
+    },
+    {
+      "id": "teams-standup",
+      "platform": "teams",
+      "name": "Daily Standup",
+      "workspace": "Client Alpha",
+      "unread": 2,
+      "lastTs": "2026-02-28T09:30:00"
+    },
+    {
+      "id": "teams-design",
+      "platform": "teams",
+      "name": "Design Reviews",
+      "workspace": "Client Alpha",
+      "unread": 0,
+      "lastTs": "2026-02-27T16:10:00"
+    },
+    {
+      "id": "discord-general",
+      "platform": "discord",
+      "name": "general",
+      "workspace": "Client Beta",
+      "unread": 8,
+      "lastTs": "2026-02-28T11:15:00"
+    },
+    {
+      "id": "discord-dev",
+      "platform": "discord",
+      "name": "dev-talk",
+      "workspace": "Client Beta",
+      "unread": 0,
+      "lastTs": "2026-02-27T20:45:00"
+    }
+  ],
+  "messages": {
+    "slack-general": [
+      { "id": 1, "user": "Sarah K.", "avatar": "S", "body": "Morning everyone! Sprint planning starts in 30 minutes 🗓️", "ts": "2026-02-28T09:01:00" },
+      { "id": 2, "user": "James T.", "avatar": "J", "body": "On it — just finishing up the ALPHA-13 fix first.", "ts": "2026-02-28T09:03:00" },
+      { "id": 3, "user": "Maya R.", "avatar": "M", "body": "I'll be a few minutes late, please start without me", "ts": "2026-02-28T09:05:00" },
+      { "id": 4, "user": "Sarah K.", "avatar": "S", "body": "No worries Maya. James — any blockers we should know about before we start?", "ts": "2026-02-28T09:06:00" },
+      { "id": 5, "user": "James T.", "avatar": "J", "body": "The payment gateway timeout is weirdly only reproducible on staging. Can't replicate locally at all.", "ts": "2026-02-28T09:08:00" },
+      { "id": 6, "user": "Alex P.", "avatar": "A", "body": "That's the Redis connection pool on staging — it's misconfigured. I flagged it last week in #incidents", "ts": "2026-02-28T09:10:00" },
+      { "id": 7, "user": "James T.", "avatar": "J", "body": "Oh! That explains everything. Linking ALPHA-13 to that ticket now.", "ts": "2026-02-28T09:11:00" },
+      { "id": 8, "user": "Sarah K.", "avatar": "S", "body": "Great catch Alex. Let's make sure we add a staging env check to the sprint retrospective action items.", "ts": "2026-02-28T09:13:00" },
+      { "id": 9, "user": "Dev Bot", "avatar": "D", "body": "🔔 ALPHA-13 status updated to In Progress by James T.", "ts": "2026-02-28T09:15:00", "isBot": true },
+      { "id": 10, "user": "Maya R.", "avatar": "M", "body": "Here now, sorry! Did I miss anything important?", "ts": "2026-02-28T09:18:00" },
+      { "id": 11, "user": "Sarah K.", "avatar": "S", "body": "Just the Redis discovery — scroll up. Kicking off planning now.", "ts": "2026-02-28T09:19:00" },
+      { "id": 12, "user": "you", "avatar": "Y", "body": "Quick question — are we still targeting the March 10 release for ALPHA-12?", "ts": "2026-02-28T10:35:00", "isSelf": true },
+      { "id": 13, "user": "Sarah K.", "avatar": "S", "body": "Yes, that's still the plan. Auth needs to be merged by Thursday EOD to give QA two days.", "ts": "2026-02-28T10:38:00" },
+      { "id": 14, "user": "James T.", "avatar": "J", "body": "I can do a first review pass today if you push a draft PR", "ts": "2026-02-28T10:40:00" },
+      { "id": 15, "user": "you", "avatar": "Y", "body": "Perfect, will have it up by 2pm 👍", "ts": "2026-02-28T10:42:00", "isSelf": true }
+    ],
+    "slack-engineering": [
+      { "id": 1, "user": "Alex P.", "avatar": "A", "body": "Pushed the new CI config — pipeline is now ~40% faster on average. Caching node_modules between runs.", "ts": "2026-02-28T08:30:00" },
+      { "id": 2, "user": "Maya R.", "avatar": "M", "body": "That's a huge improvement. What was the bottleneck before?", "ts": "2026-02-28T08:33:00" },
+      { "id": 3, "user": "Alex P.", "avatar": "A", "body": "npm install was running fresh every time. Also split the lint and test steps so they run in parallel now.", "ts": "2026-02-28T08:35:00" },
+      { "id": 4, "user": "Dev Bot", "avatar": "D", "body": "✅ Build #241 passed in 1m 48s", "ts": "2026-02-28T09:15:00", "isBot": true }
+    ],
+    "slack-incidents": [
+      { "id": 1, "user": "Dev Bot", "avatar": "D", "body": "🚨 P2 Alert: Staging Redis connection pool exhausted. 3 services degraded.", "ts": "2026-02-28T08:50:00", "isBot": true },
+      { "id": 2, "user": "Alex P.", "avatar": "A", "body": "On it. Increasing max connections and restarting the pool.", "ts": "2026-02-28T08:52:00" },
+      { "id": 3, "user": "Alex P.", "avatar": "A", "body": "Resolved. Pool config updated, all services back to normal. Root cause: max_connections was set to 10 instead of 100.", "ts": "2026-02-28T08:55:00" }
+    ],
+    "slack-beta-dev": [
+      { "id": 1, "user": "you", "avatar": "Y", "body": "The webhook retry logic PR is up for review — #201. Took a slightly different approach than we discussed.", "ts": "2026-02-28T10:00:00", "isSelf": true },
+      { "id": 2, "user": "James T.", "avatar": "J", "body": "Why the change?", "ts": "2026-02-28T10:02:00" },
+      { "id": 3, "user": "you", "avatar": "Y", "body": "The exponential backoff library we were going to use has a memory leak bug open for 8 months. Wrote a small util instead.", "ts": "2026-02-28T10:04:00", "isSelf": true },
+      { "id": 4, "user": "James T.", "avatar": "J", "body": "Smart. I'll take a look now.", "ts": "2026-02-28T10:05:00" },
+      { "id": 5, "user": "Maya R.", "avatar": "M", "body": "Also — heads up, the emails not sending issue (#203) is a Sendgrid API key rotation. Rotating now.", "ts": "2026-02-28T10:45:00" },
+      { "id": 6, "user": "Dev Bot", "avatar": "D", "body": "🔔 PR #201 approved by james-t", "ts": "2026-02-28T11:00:00", "isBot": true },
+      { "id": 7, "user": "you", "avatar": "Y", "body": "Merging now 🚀", "ts": "2026-02-28T11:02:00", "isSelf": true }
+    ],
+    "slack-beta-releases": [
+      { "id": 1, "user": "Alex P.", "avatar": "A", "body": "v1.4.2 deployed to production ✅ — JWT middleware refactor + Redis cache layer.", "ts": "2026-02-27T17:00:00" },
+      { "id": 2, "user": "Sarah K.", "avatar": "S", "body": "Smooth deploy! No incidents on the monitor.", "ts": "2026-02-27T17:30:00" }
+    ],
+    "teams-standup": [
+      { "id": 1, "user": "Sarah K.", "avatar": "S", "body": "Yesterday: Finished sprint planning. Today: Kicking off ALPHA-16. Blockers: none.", "ts": "2026-02-28T09:05:00" },
+      { "id": 2, "user": "James T.", "avatar": "J", "body": "Yesterday: Debugging ALPHA-13. Today: Fix + PR. Blockers: staging Redis (being fixed by Alex).", "ts": "2026-02-28T09:07:00" },
+      { "id": 3, "user": "Maya R.", "avatar": "M", "body": "Yesterday: Dashboard wireframes v2. Today: Presenting to stakeholders at 2pm. Blockers: none.", "ts": "2026-02-28T09:10:00" },
+      { "id": 4, "user": "you", "avatar": "Y", "body": "Yesterday: Auth flow work. Today: Draft PR for ALPHA-12. Blockers: waiting on spec confirmation from Sarah.", "ts": "2026-02-28T09:12:00", "isSelf": true },
+      { "id": 5, "user": "Sarah K.", "avatar": "S", "body": "Spec is confirmed — SSO with the existing providers only, no new ones this sprint.", "ts": "2026-02-28T09:14:00" },
+      { "id": 6, "user": "Alex P.", "avatar": "A", "body": "Yesterday: CI optimisation. Today: Staging Redis fix. Blockers: none.", "ts": "2026-02-28T09:30:00" }
+    ],
+    "teams-design": [
+      { "id": 1, "user": "Maya R.", "avatar": "M", "body": "Sharing the new dashboard wireframes v2 — incorporated the feedback from last week.", "ts": "2026-02-27T15:50:00" },
+      { "id": 2, "user": "Sarah K.", "avatar": "S", "body": "These look great! The sidebar is much cleaner. One thing — can we move the filter bar to the top?", "ts": "2026-02-27T16:00:00" },
+      { "id": 3, "user": "Maya R.", "avatar": "M", "body": "Yep, easy change. I'll update the Figma and reshare.", "ts": "2026-02-27T16:10:00" }
+    ],
+    "discord-general": [
+      { "id": 1, "user": "James T.", "avatar": "J", "body": "Anyone else getting 429s from the GitHub API? Rate limit seems lower than usual.", "ts": "2026-02-28T10:20:00" },
+      { "id": 2, "user": "Alex P.", "avatar": "A", "body": "Yeah, GitHub changed the unauthenticated rate limits last week. We need to add auth to all our API calls.", "ts": "2026-02-28T10:22:00" },
+      { "id": 3, "user": "Maya R.", "avatar": "M", "body": "Should this be a ticket?", "ts": "2026-02-28T10:24:00" },
+      { "id": 4, "user": "you", "avatar": "Y", "body": "Already created BETA-08 for it. Will tackle after #201 is merged.", "ts": "2026-02-28T10:26:00", "isSelf": true },
+      { "id": 5, "user": "James T.", "avatar": "J", "body": "Nice, thanks!", "ts": "2026-02-28T10:27:00" },
+      { "id": 6, "user": "Dev Bot", "avatar": "D", "body": "📌 BETA-08 created: Add GitHub auth to API calls", "ts": "2026-02-28T10:28:00", "isBot": true },
+      { "id": 7, "user": "Alex P.", "avatar": "A", "body": "Also heads up — our Discord server is getting indexed by some search bots. Worth making invite-only if it isn't already.", "ts": "2026-02-28T11:00:00" },
+      { "id": 8, "user": "Maya R.", "avatar": "M", "body": "Already invite-only on my end. Maybe a server settings sync issue?", "ts": "2026-02-28T11:05:00" },
+      { "id": 9, "user": "you", "avatar": "Y", "body": "I can check the server settings tonight.", "ts": "2026-02-28T11:10:00", "isSelf": true },
+      { "id": 10, "user": "James T.", "avatar": "J", "body": "Thanks 🙏", "ts": "2026-02-28T11:15:00" }
+    ],
+    "discord-dev": [
+      { "id": 1, "user": "Alex P.", "avatar": "A", "body": "FYI — migrated all our infra scripts to use pnpm. Faster installs and better lockfile handling.", "ts": "2026-02-27T19:30:00" },
+      { "id": 2, "user": "you", "avatar": "Y", "body": "Nice. Will update the local setup docs.", "ts": "2026-02-27T20:45:00", "isSelf": true }
+    ]
+  }
+}

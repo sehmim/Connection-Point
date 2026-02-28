@@ -1,0 +1,12 @@
+[
+  { "id": 183, "title": "feat: add OAuth2 login with Google", "type": "pr", "status": "Open", "repo": "clientalpha/api", "author": "you", "updatedAt": "2026-02-26", "workspace": "Client Alpha", "url": "#" },
+  { "id": 184, "title": "fix: memory leak in session handler", "type": "pr", "status": "Merged", "repo": "clientalpha/api", "author": "sarah-k", "updatedAt": "2026-02-24", "workspace": "Client Alpha", "url": "#" },
+  { "id": 185, "title": "Bug: 500 error on password reset endpoint", "type": "issue", "status": "Open", "repo": "clientalpha/frontend", "author": "james-t", "updatedAt": "2026-02-25", "workspace": "Client Alpha", "url": "#" },
+  { "id": 186, "title": "chore: update dependencies to remove vulnerabilities", "type": "pr", "status": "Open", "repo": "clientalpha/frontend", "author": "you", "updatedAt": "2026-02-27", "workspace": "Client Alpha", "url": "#" },
+  { "id": 187, "title": "Feature request: export data as PDF", "type": "issue", "status": "Closed", "repo": "clientalpha/api", "author": "maya-r", "updatedAt": "2026-02-20", "workspace": "Client Alpha", "url": "#" },
+  { "id": 201, "title": "feat: implement webhook retry logic", "type": "pr", "status": "Open", "repo": "clientbeta/backend", "author": "you", "updatedAt": "2026-02-26", "workspace": "Client Beta", "url": "#" },
+  { "id": 202, "title": "fix: race condition in queue processor", "type": "pr", "status": "Merged", "repo": "clientbeta/backend", "author": "alex-p", "updatedAt": "2026-02-23", "workspace": "Client Beta", "url": "#" },
+  { "id": 203, "title": "Bug: emails not sending in production", "type": "issue", "status": "Open", "repo": "clientbeta/backend", "author": "you", "updatedAt": "2026-02-28", "workspace": "Client Beta", "url": "#" },
+  { "id": 204, "title": "refactor: split monolith into microservices", "type": "pr", "status": "Open", "repo": "clientbeta/infra", "author": "james-t", "updatedAt": "2026-02-22", "workspace": "Client Beta", "url": "#" },
+  { "id": 205, "title": "Improve test coverage to 80%", "type": "issue", "status": "Closed", "repo": "clientbeta/backend", "author": "dev-bot", "updatedAt": "2026-02-18", "workspace": "Client Beta", "url": "#" }
+]

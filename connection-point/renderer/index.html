@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'" />
+  <title>Connection Point</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind v4 CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Design tokens + global styles -->
+  <style>
+    :root {
+      /* Backgrounds */
+      --bg-base:       #0f0f0f;
+      --bg-surface:    #161616;
+      --bg-raised:     #1e1e1e;
+      --bg-hover:      #252525;
+
+      /* Text */
+      --text-primary:   #f0f0f0;
+      --text-secondary: #a0a0a0;
+      --text-muted:     #5a5a5a;
+
+      /* Borders */
+      --border:         #2a2a2a;
+      --border-subtle:  #1f1f1f;
+
+      /* Accent */
+      --accent:         #6366f1;
+      --accent-muted:   rgba(99, 102, 241, 0.15);
+
+      /* Status */
+      --success:        #10b981;
+      --success-muted:  rgba(16, 185, 129, 0.12);
+      --warning:        #f59e0b;
+      --warning-muted:  rgba(245, 158, 11, 0.12);
+      --danger:         #ef4444;
+      --danger-muted:   rgba(239, 68, 68, 0.12);
+
+      /* Radii */
+      --radius:         6px;
+      --radius-sm:      4px;
+      --radius-lg:      10px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--text-muted);
+    }
+
+    select option {
+      background: #1e1e1e;
+      color: #f0f0f0;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    @keyframes typing-dot {
+      0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+      30% { opacity: 1; transform: translateY(-4px); }
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to   { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body style="background:var(--bg-base); color:var(--text-primary); font-family:'IBM Plex Sans',sans-serif; margin:0; height:100vh; overflow:hidden;">
+
+  <!-- Custom titlebar -->
+  <div id="titlebar" style="
+    -webkit-app-region: drag;
+    height: 36px;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    padding-left: 80px;
+    justify-content: flex-end;
+    flex-shrink: 0;
+  ">
+    <!-- Window controls only shown on non-macOS -->
+    <div id="window-controls" style="-webkit-app-region: no-drag; display:none; gap:8px; padding-right:12px; align-items:center;">
+      <button onclick="window.api.minimizeWindow()" title="Minimize" style="
+        width:12px; height:12px; border-radius:50%;
+        background:#f1c40f; border:none; cursor:pointer; padding:0;
+        transition:opacity 0.15s;
+      " onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'"></button>
+      <button onclick="window.api.maximizeWindow()" title="Maximize" style="
+        width:12px; height:12px; border-radius:50%;
+        background:#2ecc71; border:none; cursor:pointer; padding:0;
+        transition:opacity 0.15s;
+      " onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'"></button>
+      <button onclick="window.api.closeWindow()" title="Close" style="
+        width:12px; height:12px; border-radius:50%;
+        background:#e74c3c; border:none; cursor:pointer; padding:0;
+        transition:opacity 0.15s;
+      " onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'"></button>
+    </div>
+  </div>
+
+  <!-- Main layout -->
+  <div id="app" style="display:flex; height:calc(100vh - 36px);">
+    <div id="sidebar-container" style="display:none;"></div>
+    <div id="content" style="flex:1; overflow:hidden; position:relative;">
+      <div data-view="auth"        class="hidden" style="height:100%;"></div>
+      <div data-view="onboarding"  class="hidden" style="height:100%;"></div>
+      <div data-view="dashboard"   class="hidden" style="height:100%;"></div>
+      <div data-view="chat"        class="hidden" style="height:100%;"></div>
+    </div>
+  </div>
+
+  <!-- Scripts loaded in dependency order -->
+  <script src="components/toast.js"></script>
+  <script src="components/sidebar.js"></script>
+  <script src="views/auth.js"></script>
+  <script src="views/onboarding.js"></script>
+  <script src="views/dashboard.js"></script>
+  <script src="views/chat.js"></script>
+  <script src="app.js"></script>
+
+  <script>
+    // Show custom window controls on non-macOS
+    const isMac = window.api && window.api.platform === 'darwin'
+    if (!isMac) {
+      const ctrl = document.getElementById('window-controls')
+      if (ctrl) ctrl.style.display = 'flex'
+    }
+  </script>
+</body>
+</html>

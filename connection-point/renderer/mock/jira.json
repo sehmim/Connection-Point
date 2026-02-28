@@ -1,0 +1,17 @@
+[
+  { "id": "ALPHA-12", "title": "Implement user authentication flow", "status": "In Progress", "priority": "High", "assignee": "Sarah K.", "sprint": "Sprint 14", "dueDate": "2026-03-10", "workspace": "Client Alpha", "url": "#" },
+  { "id": "ALPHA-13", "title": "Fix payment gateway timeout issues", "status": "Open", "priority": "High", "assignee": "James T.", "sprint": "Sprint 14", "dueDate": "2026-03-08", "workspace": "Client Alpha", "url": "#" },
+  { "id": "ALPHA-14", "title": "Migrate legacy database schemas", "status": "Review", "priority": "Medium", "assignee": "Maya R.", "sprint": "Sprint 14", "dueDate": "2026-03-15", "workspace": "Client Alpha", "url": "#" },
+  { "id": "ALPHA-15", "title": "Add CSV export to reporting module", "status": "Done", "priority": "Low", "assignee": "Dev Bot", "sprint": "Sprint 14", "dueDate": "2026-02-28", "workspace": "Client Alpha", "url": "#" },
+  { "id": "ALPHA-16", "title": "Update onboarding email templates", "status": "Open", "priority": "Medium", "assignee": "Alex P.", "sprint": "Sprint 15", "dueDate": "2026-03-20", "workspace": "Client Alpha", "url": "#" },
+  { "id": "ALPHA-17", "title": "Performance audit — checkout funnel", "status": "In Progress", "priority": "High", "assignee": "Sarah K.", "sprint": "Sprint 15", "dueDate": "2026-03-18", "workspace": "Client Alpha", "url": "#" },
+  { "id": "ALPHA-18", "title": "Resolve CORS errors on staging API", "status": "Done", "priority": "High", "assignee": "James T.", "sprint": "Sprint 14", "dueDate": "2026-02-25", "workspace": "Client Alpha", "url": "#" },
+  { "id": "ALPHA-19", "title": "Design new dashboard wireframes", "status": "Review", "priority": "Medium", "assignee": "Maya R.", "sprint": "Sprint 15", "dueDate": "2026-03-22", "workspace": "Client Alpha", "url": "#" },
+  { "id": "BETA-01", "title": "Set up CI/CD pipeline for staging", "status": "In Progress", "priority": "High", "assignee": "Alex P.", "sprint": "Sprint 14", "dueDate": "2026-03-05", "workspace": "Client Beta", "url": "#" },
+  { "id": "BETA-02", "title": "Write unit tests for billing module", "status": "Open", "priority": "Medium", "assignee": "Dev Bot", "sprint": "Sprint 14", "dueDate": "2026-03-12", "workspace": "Client Beta", "url": "#" },
+  { "id": "BETA-03", "title": "Integrate Stripe webhooks", "status": "In Progress", "priority": "High", "assignee": "Sarah K.", "sprint": "Sprint 14", "dueDate": "2026-03-07", "workspace": "Client Beta", "url": "#" },
+  { "id": "BETA-04", "title": "Accessibility audit — WCAG 2.1 AA", "status": "Open", "priority": "Medium", "assignee": "James T.", "sprint": "Sprint 15", "dueDate": "2026-03-25", "workspace": "Client Beta", "url": "#" },
+  { "id": "BETA-05", "title": "Refactor auth middleware to JWT", "status": "Done", "priority": "High", "assignee": "Maya R.", "sprint": "Sprint 14", "dueDate": "2026-02-20", "workspace": "Client Beta", "url": "#" },
+  { "id": "BETA-06", "title": "Add dark mode support to admin panel", "status": "Review", "priority": "Low", "assignee": "Alex P.", "sprint": "Sprint 15", "dueDate": "2026-03-28", "workspace": "Client Beta", "url": "#" },
+  { "id": "BETA-07", "title": "Cache API responses with Redis", "status": "Open", "priority": "Medium", "assignee": "Dev Bot", "sprint": "Sprint 15", "dueDate": "2026-03-30", "workspace": "Client Beta", "url": "#" }
+]
