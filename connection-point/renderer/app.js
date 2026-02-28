@@ -22,7 +22,8 @@ function navigate(view) {
     auth: window.renderAuth,
     onboarding: window.renderOnboarding,
     dashboard: window.renderDashboard,
-    chat: window.renderChat
+    chat: window.renderChat,
+    settings: window.renderSettings
   }
   if (renders[view]) renders[view]()
 }
