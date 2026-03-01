@@ -23,6 +23,7 @@ function navigate(view) {
   const renders = {
     auth: window.renderAuth,
     onboarding: window.renderOnboarding,
+    loading: window.renderLoading,
     overview: window.renderOverview,
     dashboard: window.renderDashboard,
     chat: window.renderChat,
@@ -35,7 +36,7 @@ window.navigate = navigate
 function updateSidebarVisibility(view) {
   const sidebar = document.getElementById('sidebar-container')
   if (!sidebar) return
-  sidebar.style.display = ['auth', 'onboarding'].includes(view) ? 'none' : 'flex'
+  sidebar.style.display = ['auth', 'onboarding', 'loading'].includes(view) ? 'none' : 'flex'
 }
 
 document.addEventListener('DOMContentLoaded', async () => {

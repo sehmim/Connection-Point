@@ -244,6 +244,9 @@ window._renderWorkspaceCard = function(ws, wsIdx) {
           <!-- Integration cards -->
           ${integrations.map(intg => window._renderSettingsIntegrationCard(ws, wsIdx, intg)).join('')}
 
+          <!-- Sync Status -->
+          ${window._renderSettingsSyncStatus(ws, wsIdx)}
+
           <!-- Custom links -->
           ${window._renderSettingsCustomLinks(ws, wsIdx)}
 
@@ -344,6 +347,164 @@ window._renderSettingsIntegrationCard = function(ws, wsIdx, intg) {
       </div>
     </div>
   `
+}
+
+window._renderSettingsSyncStatus = function(ws, wsIdx) {
+  const integrations = [
+    { id: 'jira',    label: 'Jira',             logo: '../assets/jira.svg',            enabledKey: 'jiraEnabled'    },
+    { id: 'github',  label: 'GitHub',            logo: '../assets/github.svg',          enabledKey: 'githubEnabled'  },
+    { id: 'gmail',   label: 'Gmail',             logo: '../assets/gmail.svg',           enabledKey: 'gmailEnabled'   },
+    { id: 'gcal',    label: 'Google Calendar',   logo: '../assets/google-calendar.svg', enabledKey: 'gcalEnabled'    },
+    { id: 'outlook', label: 'Outlook Calendar',  logo: '../assets/outlook.svg',         enabledKey: 'outlookEnabled' },
+  ]
+
+  const enabled = integrations.filter(function(i) { return ws[i.enabledKey] })
+
+  function _syncBadge(key) {
+    const st = (window._fetchState || {})[key]
+    if (!st || st.status === 'idle') {
+      return `<span style="font-size:11px; color:var(--text-muted);">Not fetched yet</span>`
+    }
+    if (st.status === 'fetching') {
+      return `
+        <span style="display:inline-flex; align-items:center; gap:5px; font-size:11px; color:var(--text-muted);">
+          <div style="
+            width:10px; height:10px; border-radius:50%;
+            border:2px solid var(--border); border-top-color:var(--accent);
+            animation:spin 0.7s linear infinite; flex-shrink:0;
+          "></div>
+          Fetching…
+        </span>`
+    }
+    if (st.status === 'done') {
+      const ago = st.ts ? _timeAgo(st.ts) : ''
+      return `<span style="font-size:11px; color:var(--success); font-weight:500;">Synced${ago ? ' ' + ago : ''} · ${st.count} item${st.count !== 1 ? 's' : ''}</span>`
+    }
+    if (st.status === 'error') {
+      return `<span style="font-size:11px; color:var(--danger);">Error: ${st.message || 'Failed'}</span>`
+    }
+    return ''
+  }
+
+  return `
+    <div style="margin-top:20px; margin-bottom:4px;">
+      <div style="
+        display:flex; align-items:center; justify-content:space-between;
+        margin-bottom:10px;
+      ">
+        <div style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.08em;">Sync Status</div>
+        ${enabled.length > 0 ? `
+          <button
+            onclick="window._settingsResyncAll(${wsIdx})"
+            style="
+              display:flex; align-items:center; gap:5px;
+              padding:4px 10px;
+              background:transparent; color:var(--accent);
+              border:1px solid var(--accent); border-radius:var(--radius);
+              font-size:12px; font-weight:600;
+              font-family:'IBM Plex Sans',sans-serif;
+              cursor:pointer; transition:background 0.15s;
+            "
+            onmouseover="this.style.background='var(--accent-muted)'"
+            onmouseout="this.style.background='transparent'"
+          >
+            <i data-lucide="refresh-cw" style="width:11px; height:11px;"></i>
+            Re-sync all
+          </button>
+        ` : ''}
+      </div>
+
+      ${enabled.length === 0
+        ? `<div style="font-size:12px; color:var(--text-muted); padding:4px 2px;">No integrations enabled.</div>`
+        : `<div style="border:1px solid var(--border); border-radius:var(--radius); overflow:hidden;">
+            ${enabled.map(function(intg, idx) {
+              const key = ws.name + ':' + intg.id
+              return `
+                <div style="
+                  display:flex; align-items:center; gap:10px;
+                  padding:10px 14px;
+                  ${idx < enabled.length - 1 ? 'border-bottom:1px solid var(--border-subtle);' : ''}
+                ">
+                  <img src="${intg.logo}" alt="${intg.label}" style="width:14px; height:14px; object-fit:contain; flex-shrink:0;"
+                    onerror="this.style.display='none'">
+                  <span style="font-size:13px; color:var(--text-primary); font-weight:500; min-width:120px; flex-shrink:0;">${intg.label}</span>
+                  <div style="flex:1; min-width:0;">${_syncBadge(key)}</div>
+                  <button
+                    onclick="window._settingsResyncService(${wsIdx}, '${intg.id}')"
+                    style="
+                      display:flex; align-items:center; gap:4px;
+                      padding:3px 8px; flex-shrink:0;
+                      background:transparent; color:var(--text-secondary);
+                      border:1px solid var(--border); border-radius:var(--radius);
+                      font-size:11px; font-weight:500;
+                      font-family:'IBM Plex Sans',sans-serif;
+                      cursor:pointer; transition:border-color 0.15s, color 0.15s;
+                    "
+                    onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
+                    onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'"
+                  >
+                    <i data-lucide="refresh-cw" style="width:10px; height:10px;"></i>
+                    Re-sync
+                  </button>
+                </div>
+              `
+            }).join('')}
+          </div>`
+      }
+    </div>
+  `
+}
+
+function _timeAgo(ts) {
+  const diff = Math.floor((Date.now() - ts) / 1000)
+  if (diff < 5)  return 'just now'
+  if (diff < 60) return diff + 's ago'
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago'
+  return Math.floor(diff / 3600) + 'h ago'
+}
+
+window._settingsResyncService = function(wsIdx, serviceId) {
+  const ws = window._appState && window._appState.workspaces[wsIdx]
+  if (!ws) return
+
+  const key = ws.name + ':' + serviceId
+  if (!window._fetchState) window._fetchState = {}
+  window._fetchState[key] = { status: 'fetching', message: '', count: null, ts: null }
+  window._renderSettingsUI()
+
+  window._mockFetchService(ws.name, serviceId).then(function() {
+    window._renderSettingsUI()
+  }).catch(function() {
+    window._renderSettingsUI()
+  })
+}
+
+window._settingsResyncAll = function(wsIdx) {
+  const ws = window._appState && window._appState.workspaces[wsIdx]
+  if (!ws) return
+
+  const integrations = [
+    { id: 'jira',    enabledKey: 'jiraEnabled'    },
+    { id: 'github',  enabledKey: 'githubEnabled'  },
+    { id: 'gmail',   enabledKey: 'gmailEnabled'   },
+    { id: 'gcal',    enabledKey: 'gcalEnabled'    },
+    { id: 'outlook', enabledKey: 'outlookEnabled' },
+  ]
+  const enabled = integrations.filter(function(i) { return ws[i.enabledKey] })
+
+  if (!window._fetchState) window._fetchState = {}
+  enabled.forEach(function(intg) {
+    window._fetchState[ws.name + ':' + intg.id] = { status: 'fetching', message: '', count: null, ts: null }
+  })
+  window._renderSettingsUI()
+
+  enabled.forEach(function(intg) {
+    window._mockFetchService(ws.name, intg.id).then(function() {
+      window._renderSettingsUI()
+    }).catch(function() {
+      window._renderSettingsUI()
+    })
+  })
 }
 
 window._renderSettingsCustomLinks = function(ws, wsIdx) {

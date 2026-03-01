@@ -1,11 +1,11 @@
-window._onboardingState = { step: 1, name: '', color: '', profiles: [], detectedProfiles: null, jiraEnabled: false, jiraUrl: '', githubEnabled: false, githubUrl: '', gmailEnabled: false, gmailUrl: '', gcalEnabled: false, gcalUrl: '', outlookEnabled: false, outlookUrl: '', customLinks: [] }
+window._onboardingState = { step: 1, name: '', color: '', profiles: [], detectedProfiles: null, llmModelName: '', llmApiKey: '', jiraEnabled: false, jiraUrl: '', githubEnabled: false, githubUrl: '', gmailEnabled: false, gmailUrl: '', gcalEnabled: false, gcalUrl: '', outlookEnabled: false, outlookUrl: '', customLinks: [] }
 
 window.renderOnboarding = function() {
   const container = document.querySelector('[data-view="onboarding"]')
   if (!container) return
 
   // Reset state on fresh render
-  window._onboardingState = { step: 1, name: '', color: '', profiles: [], detectedProfiles: null, jiraEnabled: false, jiraUrl: '', githubEnabled: false, githubUrl: '', gmailEnabled: false, gmailUrl: '', gcalEnabled: false, gcalUrl: '', outlookEnabled: false, outlookUrl: '', customLinks: [] }
+  window._onboardingState = { step: 1, name: '', color: '', profiles: [], detectedProfiles: null, llmModelName: '', llmApiKey: '', jiraEnabled: false, jiraUrl: '', githubEnabled: false, githubUrl: '', gmailEnabled: false, gmailUrl: '', gcalEnabled: false, gcalUrl: '', outlookEnabled: false, outlookUrl: '', customLinks: [] }
 
   container.innerHTML = `
     <div style="
@@ -15,11 +15,12 @@ window.renderOnboarding = function() {
       <div id="onboarding-card" style="width: 520px; padding: 20px 0;">
         <!-- Step indicator -->
         <div style="text-align:center; margin-bottom:28px;">
-          <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px;">Step 1 of 3</div>
+          <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px;">Step 1 of 4</div>
           <div style="display:flex; gap:6px; justify-content:center;">
             <div class="step-dot" data-step="1" style="width:6px; height:6px; border-radius:50%; background:var(--accent);"></div>
             <div class="step-dot" data-step="2" style="width:6px; height:6px; border-radius:50%; background:var(--border);"></div>
             <div class="step-dot" data-step="3" style="width:6px; height:6px; border-radius:50%; background:var(--border);"></div>
+            <div class="step-dot" data-step="4" style="width:6px; height:6px; border-radius:50%; background:var(--border);"></div>
           </div>
         </div>
         <div id="step-content"></div>
@@ -39,9 +40,9 @@ window._renderOnboardingStep = function(step) {
     dot.style.background = dotStep === step ? 'var(--accent)' : dotStep < step ? 'var(--accent-muted)' : 'var(--border)'
   })
   const stepLabel = document.querySelector('[data-step-label]')
-  // Update "Step N of 3" text
+  // Update "Step N of 4" text
   const stepTexts = document.querySelectorAll('#onboarding-card > div:first-child > div:first-child')
-  stepTexts.forEach(el => { el.textContent = `Step ${step} of 3` })
+  stepTexts.forEach(el => { el.textContent = `Step ${step} of 4` })
 
   const content = document.getElementById('step-content')
   if (!content) return
@@ -115,6 +116,95 @@ window._renderOnboardingStep = function(step) {
       </div>
     `
   } else if (step === 2) {
+    const s = window._onboardingState
+    content.innerHTML = `
+      <div style="
+        background:var(--bg-surface);
+        border:1px solid var(--border);
+        border-radius:var(--radius);
+        padding:40px;
+      ">
+        <h2 style="font-size:20px; font-weight:600; color:var(--text-primary); margin:0 0 6px;">LLM Setup</h2>
+        <p style="font-size:14px; color:var(--text-secondary); margin:0 0 4px;">
+          Connection Point uses an LLM to power chat and intelligent briefing summaries.
+        </p>
+        <p style="font-size:13px; color:var(--text-muted); margin:0 0 28px;">
+          Your credentials are stored locally and never leave your machine.
+        </p>
+
+        <div style="margin-bottom:20px;">
+          <label style="display:block; font-size:12px; font-weight:600; color:var(--text-secondary); margin-bottom:6px; text-transform:uppercase; letter-spacing:0.06em;">Model Name</label>
+          <input
+            id="llm-model-name"
+            type="text"
+            placeholder="e.g. claude-sonnet-4-6, gpt-4o, llama3.2"
+            value="${s.llmModelName}"
+            oninput="window._onboardingState.llmModelName=this.value"
+            style="
+              width:100%; box-sizing:border-box;
+              background:var(--bg-raised); border:1px solid var(--border);
+              border-radius:var(--radius); padding:10px 14px;
+              font-size:14px; color:var(--text-primary);
+              font-family:'IBM Plex Sans',sans-serif; outline:none;
+              transition:border-color 0.15s;
+            "
+            onfocus="this.style.borderColor='var(--accent)'"
+            onblur="this.style.borderColor='var(--border)'"
+          />
+        </div>
+
+        <div style="margin-bottom:28px;">
+          <label style="display:block; font-size:12px; font-weight:600; color:var(--text-secondary); margin-bottom:6px; text-transform:uppercase; letter-spacing:0.06em;">API Key <span style="font-weight:400; text-transform:none; letter-spacing:0; color:var(--text-muted);">(optional for local models)</span></label>
+          <div style="position:relative;">
+            <input
+              id="llm-api-key"
+              type="password"
+              placeholder="sk-ant-... / sk-... / AIza..."
+              value="${s.llmApiKey}"
+              oninput="window._onboardingState.llmApiKey=this.value"
+              style="
+                width:100%; box-sizing:border-box;
+                background:var(--bg-raised); border:1px solid var(--border);
+                border-radius:var(--radius); padding:10px 40px 10px 14px;
+                font-size:14px; color:var(--text-primary);
+                font-family:'IBM Plex Sans',sans-serif; outline:none;
+                transition:border-color 0.15s;
+              "
+              onfocus="this.style.borderColor='var(--accent)'"
+              onblur="this.style.borderColor='var(--border)'"
+            />
+            <button id="llm-key-toggle" onclick="window._toggleApiKeyVisibility()" title="Show/hide key" style="
+              position:absolute; right:10px; top:50%; transform:translateY(-50%);
+              background:transparent; border:none; cursor:pointer; padding:0;
+              color:var(--text-muted); display:flex; align-items:center;
+              transition:color 0.15s;
+            " onmouseover="this.style.color='var(--text-primary)'" onmouseout="this.style.color='var(--text-muted)'">
+              <i data-lucide="eye" style="width:14px; height:14px;"></i>
+            </button>
+          </div>
+        </div>
+
+        <div style="display:flex; gap:10px;">
+          <button onclick="window._renderOnboardingStep(1)" style="
+            flex:1; padding:10px 14px;
+            background:var(--bg-raised); color:var(--text-secondary);
+            border:1px solid var(--border); border-radius:var(--radius);
+            font-size:14px; font-weight:600;
+            font-family:'IBM Plex Sans',sans-serif;
+            cursor:pointer; transition:opacity 0.15s;
+          " onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'">Back</button>
+          <button onclick="window._onboardingNext(2)" style="
+            flex:2; padding:10px 14px;
+            background:var(--accent); color:#fff;
+            border:none; border-radius:var(--radius);
+            font-size:14px; font-weight:600;
+            font-family:'IBM Plex Sans',sans-serif;
+            cursor:pointer; transition:opacity 0.15s;
+          " onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">Continue</button>
+        </div>
+      </div>
+    `
+  } else if (step === 3) {
     const hasDetected = !!window._onboardingState.detectedProfiles
 
     content.innerHTML = `
@@ -161,7 +251,7 @@ window._renderOnboardingStep = function(step) {
         </div>
 
         <div style="display:flex; gap:10px; margin-top:24px;">
-          <button onclick="window._renderOnboardingStep(1)" style="
+          <button onclick="window._renderOnboardingStep(2)" style="
             flex:1; padding:10px 14px;
             background:var(--bg-raised); color:var(--text-secondary);
             border:1px solid var(--border); border-radius:var(--radius);
@@ -169,7 +259,7 @@ window._renderOnboardingStep = function(step) {
             font-family:'IBM Plex Sans',sans-serif;
             cursor:pointer; transition:opacity 0.15s;
           " onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'">Back</button>
-          <button onclick="window._onboardingNext(2)" style="
+          <button onclick="window._onboardingNext(3)" style="
             flex:2; padding:10px 14px;
             background:var(--accent); color:#fff;
             border:none; border-radius:var(--radius);
@@ -180,7 +270,7 @@ window._renderOnboardingStep = function(step) {
         </div>
       </div>
     `
-  } else if (step === 3) {
+  } else if (step === 4) {
     const s = window._onboardingState
     content.innerHTML = `
       <div style="
@@ -227,7 +317,7 @@ window._renderOnboardingStep = function(step) {
         </div>
 
         <div style="display:flex; gap:10px;">
-          <button onclick="window._renderOnboardingStep(2)" style="
+          <button onclick="window._renderOnboardingStep(3)" style="
             flex:1; padding:10px 14px;
             background:var(--bg-raised); color:var(--text-secondary);
             border:1px solid var(--border); border-radius:var(--radius);
@@ -728,7 +818,17 @@ window._onboardingNext = function(currentStep) {
     }
     window._renderOnboardingStep(2)
   } else if (currentStep === 2) {
+    const modelInput = document.getElementById('llm-model-name')
+    if (modelInput) window._onboardingState.llmModelName = modelInput.value.trim()
+    const keyInput = document.getElementById('llm-api-key')
+    if (keyInput) window._onboardingState.llmApiKey = keyInput.value
+    if (!window._onboardingState.llmModelName) {
+      window.showToast('Please enter a model name.', 'error')
+      return
+    }
     window._renderOnboardingStep(3)
+  } else if (currentStep === 3) {
+    window._renderOnboardingStep(4)
   }
 }
 
@@ -738,6 +838,8 @@ window._onboardingFinish = function() {
     name: state.name,
     color: state.color,
     profiles: state.profiles,
+    llmModelName: state.llmModelName,
+    llmApiKey: state.llmApiKey,
     jiraEnabled: state.jiraEnabled,     jiraUrl: state.jiraUrl,
     githubEnabled: state.githubEnabled, githubUrl: state.githubUrl,
     gmailEnabled: state.gmailEnabled,   gmailUrl: state.gmailUrl,
@@ -749,8 +851,19 @@ window._onboardingFinish = function() {
   window._appState.workspaces.push(workspace)
   window._appState.activeWorkspace = workspace.name
 
-  window.showToast(`Workspace "${workspace.name}" created!`, 'success')
-  window.navigate('overview')
-  // Re-render sidebar to show new workspace
+  window.navigate('loading')
   if (typeof window.renderSidebar === 'function') window.renderSidebar()
+}
+
+
+window._toggleApiKeyVisibility = function() {
+  const input = document.getElementById('llm-api-key')
+  const btn = document.getElementById('llm-key-toggle')
+  if (!input) return
+  const isHidden = input.type === 'password'
+  input.type = isHidden ? 'text' : 'password'
+  if (btn) {
+    btn.innerHTML = `<i data-lucide="${isHidden ? 'eye-off' : 'eye'}" style="width:14px; height:14px;"></i>`
+    if (typeof lucide !== 'undefined') lucide.createIcons()
+  }
 }
