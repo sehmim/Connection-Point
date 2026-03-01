@@ -1,26 +1,39 @@
-window._onboardingState = { step: 1, name: '', color: '', profiles: [], detectedProfiles: null, llmModelName: '', llmApiKey: '', jiraEnabled: false, jiraUrl: '', githubEnabled: false, githubUrl: '', gmailEnabled: false, gmailUrl: '', gcalEnabled: false, gcalUrl: '', outlookEnabled: false, outlookUrl: '', customLinks: [] }
+window._onboardingState = {
+  step: 1,
+  name: '', color: '',
+  llmModelName: '', llmApiKey: '',
+  // profileIntegrations: { [profileDirName]: { enabled, jira: [{url, label, valid}], github: [...], calendar: [...] } }
+  profileIntegrations: {},
+  detectedProfiles: null,
+  customLinks: []
+}
 
 window.renderOnboarding = function() {
   const container = document.querySelector('[data-view="onboarding"]')
   if (!container) return
 
   // Reset state on fresh render
-  window._onboardingState = { step: 1, name: '', color: '', profiles: [], detectedProfiles: null, llmModelName: '', llmApiKey: '', jiraEnabled: false, jiraUrl: '', githubEnabled: false, githubUrl: '', gmailEnabled: false, gmailUrl: '', gcalEnabled: false, gcalUrl: '', outlookEnabled: false, outlookUrl: '', customLinks: [] }
+  window._onboardingState = {
+    step: 1, name: '', color: '',
+    llmModelName: '', llmApiKey: '',
+    profileIntegrations: {},
+    detectedProfiles: null,
+    customLinks: []
+  }
 
   container.innerHTML = `
     <div style="
       display: flex; align-items: center; justify-content: center;
       height: 100%; background: var(--bg-base); overflow-y: auto;
     ">
-      <div id="onboarding-card" style="width: 520px; padding: 20px 0;">
+      <div id="onboarding-card" style="width: 560px; padding: 20px 0;">
         <!-- Step indicator -->
         <div style="text-align:center; margin-bottom:28px;">
-          <div style="font-size:12px; color:var(--text-muted); margin-bottom:10px;">Step 1 of 4</div>
+          <div id="step-label" style="font-size:12px; color:var(--text-muted); margin-bottom:10px;">Step 1 of 3</div>
           <div style="display:flex; gap:6px; justify-content:center;">
             <div class="step-dot" data-step="1" style="width:6px; height:6px; border-radius:50%; background:var(--accent);"></div>
             <div class="step-dot" data-step="2" style="width:6px; height:6px; border-radius:50%; background:var(--border);"></div>
             <div class="step-dot" data-step="3" style="width:6px; height:6px; border-radius:50%; background:var(--border);"></div>
-            <div class="step-dot" data-step="4" style="width:6px; height:6px; border-radius:50%; background:var(--border);"></div>
           </div>
         </div>
         <div id="step-content"></div>
@@ -34,15 +47,13 @@ window.renderOnboarding = function() {
 window._renderOnboardingStep = function(step) {
   window._onboardingState.step = step
 
-  // Update step indicator
+  // Update step indicator dots
   document.querySelectorAll('.step-dot').forEach(dot => {
     const dotStep = parseInt(dot.getAttribute('data-step'))
     dot.style.background = dotStep === step ? 'var(--accent)' : dotStep < step ? 'var(--accent-muted)' : 'var(--border)'
   })
-  const stepLabel = document.querySelector('[data-step-label]')
-  // Update "Step N of 4" text
-  const stepTexts = document.querySelectorAll('#onboarding-card > div:first-child > div:first-child')
-  stepTexts.forEach(el => { el.textContent = `Step ${step} of 4` })
+  const stepLabel = document.getElementById('step-label')
+  if (stepLabel) stepLabel.textContent = `Step ${step} of 3`
 
   const content = document.getElementById('step-content')
   if (!content) return
@@ -205,250 +216,132 @@ window._renderOnboardingStep = function(step) {
       </div>
     `
   } else if (step === 3) {
-    const hasDetected = !!window._onboardingState.detectedProfiles
-
-    content.innerHTML = `
-      <div style="
-        background:var(--bg-surface);
-        border:1px solid var(--border);
-        border-radius:var(--radius);
-        padding:40px;
-      ">
-        <h2 style="font-size:20px; font-weight:600; color:var(--text-primary); margin:0 0 6px;">Browser Profiles</h2>
-        <p style="font-size:14px; color:var(--text-secondary); margin:0 0 6px;">
-          Connection Point uses your existing browser sessions to access Jira and GitHub.
-          Select one or more profiles you use for this workspace.
-        </p>
-        <p style="font-size:13px; color:var(--text-muted); margin:0 0 20px;">
-          Your credentials stay in your browser — nothing is stored by this app.
-        </p>
-
-        <!-- Detect button -->
-        <button id="detect-btn" onclick="window._detectProfiles()" style="
-          display:flex; align-items:center; gap:8px;
-          padding:8px 14px; margin-bottom:20px;
-          background:var(--bg-raised); color:var(--text-primary);
-          border:1px solid var(--border); border-radius:var(--radius);
-          font-size:13px; font-weight:600;
-          font-family:'IBM Plex Sans',sans-serif;
-          cursor:pointer; transition:border-color 0.15s, background 0.15s;
-        " onmouseover="this.style.borderColor='var(--accent)';this.style.background='var(--bg-hover)'" onmouseout="this.style.borderColor='var(--border)';this.style.background='var(--bg-raised)'">
-          <i data-lucide="scan-search" style="width:14px; height:14px; color:var(--accent);"></i>
-          Detect Browser Profiles
-        </button>
-
-        <!-- Browser sections -->
-        <div id="browser-sections">
-          ${hasDetected ? window._renderBrowserSections() : `
-            <div style="
-              border:1px dashed var(--border); border-radius:var(--radius);
-              padding:32px 20px; text-align:center; color:var(--text-muted); font-size:13px;
-            ">
-              <i data-lucide="mouse-pointer-click" style="width:24px; height:24px; margin-bottom:10px; opacity:0.4; display:block; margin-left:auto; margin-right:auto;"></i>
-              Click "Detect Browser Profiles" to scan for available profiles.
-            </div>
-          `}
-        </div>
-
-        <div style="display:flex; gap:10px; margin-top:24px;">
-          <button onclick="window._renderOnboardingStep(2)" style="
-            flex:1; padding:10px 14px;
-            background:var(--bg-raised); color:var(--text-secondary);
-            border:1px solid var(--border); border-radius:var(--radius);
-            font-size:14px; font-weight:600;
-            font-family:'IBM Plex Sans',sans-serif;
-            cursor:pointer; transition:opacity 0.15s;
-          " onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'">Back</button>
-          <button onclick="window._onboardingNext(3)" style="
-            flex:2; padding:10px 14px;
-            background:var(--accent); color:#fff;
-            border:none; border-radius:var(--radius);
-            font-size:14px; font-weight:600;
-            font-family:'IBM Plex Sans',sans-serif;
-            cursor:pointer; transition:opacity 0.15s;
-          " onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">Continue</button>
-        </div>
-      </div>
-    `
-  } else if (step === 4) {
-    const s = window._onboardingState
-    content.innerHTML = `
-      <div style="
-        background:var(--bg-surface);
-        border:1px solid var(--border);
-        border-radius:var(--radius);
-        padding:40px;
-      ">
-        <h2 style="font-size:20px; font-weight:600; color:var(--text-primary); margin:0 0 6px;">What should we pull?</h2>
-        <p style="font-size:14px; color:var(--text-secondary); margin:0 0 20px;">Choose which integrations to enable for this workspace.</p>
-
-        ${window._integrationCard({ id:'jira',     label:'Jira',             sub:'Atlassian Jira tickets and sprints',   logo:'../assets/jira.svg',             enabled:s.jiraEnabled,    url:s.jiraUrl,     placeholder:'https://yourcompany.atlassian.net',  stateKey:'jiraUrl' })}
-        ${window._integrationCard({ id:'github',   label:'GitHub',           sub:'Pull requests and issues',            logo:'../assets/github.svg',           enabled:s.githubEnabled,  url:s.githubUrl,   placeholder:'https://github.com/your-org',        stateKey:'githubUrl', logoBg:'#24292e' })}
-        ${window._integrationCard({ id:'gmail',    label:'Gmail',            sub:'Emails and threads',                  logo:'../assets/gmail.svg',            enabled:s.gmailEnabled,   url:s.gmailUrl,    placeholder:'https://mail.google.com',            stateKey:'gmailUrl' })}
-        ${window._integrationCard({ id:'gcal',     label:'Google Calendar',  sub:'Events and scheduled meetings',       logo:'../assets/google-calendar.svg',  enabled:s.gcalEnabled,    url:s.gcalUrl,     placeholder:'https://calendar.google.com',        stateKey:'gcalUrl' })}
-        ${window._integrationCard({ id:'outlook',  label:'Outlook Calendar', sub:'Microsoft calendar events',           logo:'../assets/outlook.svg',          enabled:s.outlookEnabled, url:s.outlookUrl,  placeholder:'https://outlook.office.com/calendar', stateKey:'outlookUrl' })}
-
-        <!-- Custom links section -->
-        <div style="margin-bottom:28px;">
-          <div style="
-            display:flex; align-items:center; justify-content:space-between;
-            margin-bottom:8px; margin-top:16px;
-          ">
-            <div>
-              <span style="font-size:12px; font-weight:600; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.06em;">Custom Links</span>
-              <span style="font-size:12px; color:var(--text-muted); margin-left:8px;">Confluence, Notion, Linear, etc.</span>
-            </div>
-            <button onclick="window._addCustomLink()" style="
-              display:flex; align-items:center; gap:5px;
-              padding:5px 10px;
-              background:transparent; color:var(--accent);
-              border:1px solid var(--accent); border-radius:var(--radius);
-              font-size:12px; font-weight:600;
-              font-family:'IBM Plex Sans',sans-serif;
-              cursor:pointer; transition:background 0.15s;
-            " onmouseover="this.style.background='var(--accent-muted)'" onmouseout="this.style.background='transparent'">
-              <i data-lucide="plus" style="width:12px; height:12px;"></i>
-              Add link
-            </button>
-          </div>
-          <div id="custom-links-list" style="display:flex; flex-direction:column; gap:6px;">
-            ${window._renderCustomLinks()}
-          </div>
-        </div>
-
-        <div style="display:flex; gap:10px;">
-          <button onclick="window._renderOnboardingStep(3)" style="
-            flex:1; padding:10px 14px;
-            background:var(--bg-raised); color:var(--text-secondary);
-            border:1px solid var(--border); border-radius:var(--radius);
-            font-size:14px; font-weight:600;
-            font-family:'IBM Plex Sans',sans-serif;
-            cursor:pointer; transition:opacity 0.15s;
-          " onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'">Back</button>
-          <button onclick="window._onboardingFinish()" style="
-            flex:2; padding:10px 14px;
-            background:var(--accent); color:#fff;
-            border:none; border-radius:var(--radius);
-            font-size:14px; font-weight:600;
-            font-family:'IBM Plex Sans',sans-serif;
-            cursor:pointer; transition:opacity 0.15s;
-          " onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">Finish Setup</button>
-        </div>
-      </div>
-    `
+    window._renderStep3()
   }
 
   if (typeof lucide !== 'undefined') lucide.createIcons()
 }
 
-window._selectColor = function(color) {
-  const nameInput = document.getElementById('ws-name')
-  if (nameInput) window._onboardingState.name = nameInput.value
-  window._onboardingState.color = color
-  window._renderOnboardingStep(1)
-}
+window._renderStep3 = function() {
+  const content = document.getElementById('step-content')
+  if (!content) return
+  const hasDetected = !!window._onboardingState.detectedProfiles
 
-window._detectProfiles = function() {
-  const btn = document.getElementById('detect-btn')
-  if (btn) {
-    btn.disabled = true
-    btn.innerHTML = `<i data-lucide="loader" style="width:14px; height:14px; color:var(--accent); animation:spin 1s linear infinite;"></i> Scanning…`
-    if (typeof lucide !== 'undefined') lucide.createIcons()
-  }
+  content.innerHTML = `
+    <div style="
+      background:var(--bg-surface);
+      border:1px solid var(--border);
+      border-radius:var(--radius);
+      padding:40px;
+    ">
+      <h2 style="font-size:20px; font-weight:600; color:var(--text-primary); margin:0 0 6px;">Browser Profiles &amp; Integrations</h2>
+      <p style="font-size:14px; color:var(--text-secondary); margin:0 0 20px;">
+        Select profiles and configure exactly what to pull for each one.
+      </p>
 
-  // Mock detection — simulate a brief scan delay
-  setTimeout(() => {
-    window._onboardingState.detectedProfiles = {
-      chrome: [
-        { name: 'Personal',  avatar: 'P', path: 'Default',   email: 'you@gmail.com' },
-        { name: 'Work',      avatar: 'W', path: 'Profile 1', email: 'you@company.com' },
-        { name: 'Client A',  avatar: 'C', path: 'Profile 2', email: 'you@clienta.com' },
-        { name: 'Client B',  avatar: 'B', path: 'Profile 3', email: 'you@clientb.com' }
-      ]
-    }
+      <!-- Detect button -->
+      <button id="detect-btn" onclick="window._detectProfiles()" style="
+        display:flex; align-items:center; gap:8px;
+        padding:8px 14px; margin-bottom:20px;
+        background:var(--bg-raised); color:var(--text-primary);
+        border:1px solid var(--border); border-radius:var(--radius);
+        font-size:13px; font-weight:600;
+        font-family:'IBM Plex Sans',sans-serif;
+        cursor:pointer; transition:border-color 0.15s, background 0.15s;
+      " onmouseover="this.style.borderColor='var(--accent)';this.style.background='var(--bg-hover)'" onmouseout="this.style.borderColor='var(--border)';this.style.background='var(--bg-raised)'">
+        <i data-lucide="scan-search" style="width:14px; height:14px; color:var(--accent);"></i>
+        Detect Browser Profiles
+      </button>
 
-    const sections = document.getElementById('browser-sections')
-    if (sections) {
-      sections.innerHTML = window._renderBrowserSections()
-      if (typeof lucide !== 'undefined') lucide.createIcons()
-    }
+      <!-- Profile list -->
+      <div id="browser-sections">
+        ${hasDetected ? window._renderBrowserSections() : `
+          <div style="
+            border:1px dashed var(--border); border-radius:var(--radius);
+            padding:32px 20px; text-align:center; color:var(--text-muted); font-size:13px;
+          ">
+            <i data-lucide="mouse-pointer-click" style="width:24px; height:24px; margin-bottom:10px; opacity:0.4; display:block; margin-left:auto; margin-right:auto;"></i>
+            Click "Detect Browser Profiles" to scan for available profiles.
+          </div>
+        `}
+      </div>
 
-    if (btn) {
-      btn.disabled = false
-      btn.innerHTML = `<i data-lucide="check" style="width:14px; height:14px; color:var(--success);"></i> Profiles detected`
-      if (typeof lucide !== 'undefined') lucide.createIcons()
-    }
-  }, 900)
+      <!-- Custom links -->
+      <div style="margin-top:24px; margin-bottom:8px;">
+        <div style="
+          display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;
+        ">
+          <div>
+            <span style="font-size:12px; font-weight:600; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.06em;">Custom Links</span>
+            <span style="font-size:12px; color:var(--text-muted); margin-left:8px;">Confluence, Notion, Linear, etc.</span>
+          </div>
+          <button onclick="window._addCustomLink()" style="
+            display:flex; align-items:center; gap:5px;
+            padding:5px 10px;
+            background:transparent; color:var(--accent);
+            border:1px solid var(--accent); border-radius:var(--radius);
+            font-size:12px; font-weight:600;
+            font-family:'IBM Plex Sans',sans-serif;
+            cursor:pointer; transition:background 0.15s;
+          " onmouseover="this.style.background='var(--accent-muted)'" onmouseout="this.style.background='transparent'">
+            <i data-lucide="plus" style="width:12px; height:12px;"></i>
+            Add link
+          </button>
+        </div>
+        <div id="custom-links-list" style="display:flex; flex-direction:column; gap:6px;">
+          ${window._renderCustomLinks()}
+        </div>
+      </div>
+
+      <div style="display:flex; gap:10px; margin-top:24px;">
+        <button onclick="window._renderOnboardingStep(2)" style="
+          flex:1; padding:10px 14px;
+          background:var(--bg-raised); color:var(--text-secondary);
+          border:1px solid var(--border); border-radius:var(--radius);
+          font-size:14px; font-weight:600;
+          font-family:'IBM Plex Sans',sans-serif;
+          cursor:pointer; transition:opacity 0.15s;
+        " onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'">Back</button>
+        <button onclick="window._onboardingFinish()" style="
+          flex:2; padding:10px 14px;
+          background:var(--accent); color:#fff;
+          border:none; border-radius:var(--radius);
+          font-size:14px; font-weight:600;
+          font-family:'IBM Plex Sans',sans-serif;
+          cursor:pointer; transition:opacity 0.15s;
+        " onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">Finish Setup →</button>
+      </div>
+    </div>
+  `
+
+  if (typeof lucide !== 'undefined') lucide.createIcons()
 }
 
 window._renderBrowserSections = function() {
   const detected = window._onboardingState.detectedProfiles
   if (!detected) return ''
-  const selectedPaths = window._onboardingState.profiles
-
   const chromeProfiles = detected.chrome || []
 
-  const chromeHTML = `
-    <!-- Chrome section -->
+  const profilesHtml = chromeProfiles.map(p => window._renderProfileCard(p)).join('')
+
+  return `
     <div style="margin-bottom:16px;">
       <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
-        <!-- Chrome colour circle as a simple stand-in icon -->
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
           <circle cx="8" cy="8" r="7.5" stroke="var(--border)"/>
           <circle cx="8" cy="8" r="3" fill="#4285F4"/>
           <path d="M8 5h6.5" stroke="#EA4335" stroke-width="2.5" stroke-linecap="round"/>
           <path d="M8 5 L1.75 11" stroke="#FBBC04" stroke-width="2.5" stroke-linecap="round"/>
-          <path d="M8 5 L8 11" stroke="none"/>
           <path d="M14.5 8 Q13 13 8 11 Q3 9 1.75 11" stroke="#34A853" stroke-width="2.5" stroke-linecap="round" fill="none"/>
         </svg>
         <span style="font-size:12px; font-weight:600; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.06em;">Chrome</span>
         <span style="font-size:11px; color:var(--text-muted);">${chromeProfiles.length} profile${chromeProfiles.length !== 1 ? 's' : ''} found</span>
       </div>
       <div style="display:flex; flex-direction:column; gap:6px;">
-        ${chromeProfiles.map(p => {
-          const isSelected = selectedPaths.includes(p.path)
-          return `
-            <div
-              class="profile-card"
-              data-profile="${p.path}"
-              onclick="window._toggleProfile('${p.path}')"
-              style="
-                display:flex; align-items:center; gap:12px;
-                padding:11px 14px; border-radius:var(--radius);
-                border:1px solid ${isSelected ? 'var(--accent)' : 'var(--border)'};
-                background:${isSelected ? 'var(--accent-muted)' : 'var(--bg-raised)'};
-                cursor:pointer; transition:border-color 0.15s, background 0.15s;
-              "
-            >
-              <!-- Checkbox -->
-              <div style="
-                width:16px; height:16px; border-radius:4px; flex-shrink:0;
-                border:1.5px solid ${isSelected ? 'var(--accent)' : 'var(--border)'};
-                background:${isSelected ? 'var(--accent)' : 'transparent'};
-                display:flex; align-items:center; justify-content:center;
-                transition:border-color 0.15s, background 0.15s;
-              ">
-                ${isSelected ? `<i data-lucide="check" style="width:10px; height:10px; color:#fff; stroke-width:3;"></i>` : ''}
-              </div>
-              <!-- Avatar -->
-              <div style="
-                width:32px; height:32px; border-radius:50%; flex-shrink:0;
-                background:var(--bg-hover); border:1px solid var(--border);
-                display:flex; align-items:center; justify-content:center;
-                font-size:13px; font-weight:600; color:var(--text-secondary);
-              ">${p.avatar}</div>
-              <!-- Info -->
-              <div style="flex:1; min-width:0;">
-                <div style="font-size:13px; color:var(--text-primary); font-weight:500;">${p.name}</div>
-                <div style="font-size:12px; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${p.email}</div>
-              </div>
-            </div>
-          `
-        }).join('')}
+        ${profilesHtml}
       </div>
     </div>
 
-    <!-- Firefox section — coming soon -->
     <div style="
       border:1px solid var(--border-subtle); border-radius:var(--radius);
       padding:12px 14px;
@@ -467,20 +360,182 @@ window._renderBrowserSections = function() {
       ">Coming soon</span>
     </div>
   `
-
-  return chromeHTML
 }
 
-window._toggleProfile = function(path) {
-  const profiles = window._onboardingState.profiles
-  const idx = profiles.indexOf(path)
-  if (idx === -1) {
-    profiles.push(path)
-  } else {
-    profiles.splice(idx, 1)
+window._renderProfileCard = function(profile) {
+  const pi = window._onboardingState.profileIntegrations
+  const isEnabled = !!(pi[profile.path] && pi[profile.path].enabled)
+
+  const accordionContent = isEnabled ? `
+    <div id="accordion-${_safeProfileId(profile.path)}" style="
+      margin-left:20px; padding-left:16px;
+      border-left:2px solid var(--accent-muted);
+      margin-top:8px;
+      overflow:hidden;
+      max-height:600px;
+      transition:max-height 0.3s ease;
+    ">
+      ${window._renderServiceSection(profile.path, 'jira')}
+      ${window._renderServiceSection(profile.path, 'github')}
+      ${window._renderServiceSection(profile.path, 'calendar')}
+    </div>
+  ` : `
+    <div id="accordion-${_safeProfileId(profile.path)}" style="max-height:0; overflow:hidden; transition:max-height 0.3s ease;"></div>
+  `
+
+  return `
+    <div style="border:1px solid ${isEnabled ? 'var(--accent)' : 'var(--border)'}; border-radius:var(--radius); overflow:hidden; margin-bottom:4px; background:${isEnabled ? 'var(--accent-muted)' : 'var(--bg-raised)'};">
+      <div
+        onclick="window._toggleProfileEnabled('${profile.path.replace(/'/g, "\\'")}')"
+        style="display:flex; align-items:center; gap:12px; padding:11px 14px; cursor:pointer;"
+      >
+        <!-- Checkbox -->
+        <div style="
+          width:16px; height:16px; border-radius:4px; flex-shrink:0;
+          border:1.5px solid ${isEnabled ? 'var(--accent)' : 'var(--border)'};
+          background:${isEnabled ? 'var(--accent)' : 'transparent'};
+          display:flex; align-items:center; justify-content:center;
+          transition:border-color 0.15s, background 0.15s;
+        ">
+          ${isEnabled ? `<i data-lucide="check" style="width:10px; height:10px; color:#fff; stroke-width:3;"></i>` : ''}
+        </div>
+        <!-- Avatar -->
+        <div style="
+          width:32px; height:32px; border-radius:50%; flex-shrink:0;
+          background:var(--bg-hover); border:1px solid var(--border);
+          display:flex; align-items:center; justify-content:center;
+          font-size:13px; font-weight:600; color:var(--text-secondary);
+        ">${profile.avatar || profile.name.charAt(0).toUpperCase()}</div>
+        <!-- Info -->
+        <div style="flex:1; min-width:0;">
+          <div style="font-size:13px; color:var(--text-primary); font-weight:500;">${profile.name}</div>
+          <div style="font-size:12px; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${profile.email || ''}</div>
+        </div>
+        ${isEnabled ? `<i data-lucide="chevron-up" style="width:14px; height:14px; color:var(--text-muted); flex-shrink:0;"></i>` : `<i data-lucide="chevron-down" style="width:14px; height:14px; color:var(--text-muted); flex-shrink:0;"></i>`}
+      </div>
+      <div style="padding:${isEnabled ? '0 14px 12px' : '0'};">
+        ${accordionContent}
+      </div>
+    </div>
+  `
+}
+
+function _safeProfileId(path) {
+  return (path || '').replace(/[^a-zA-Z0-9_-]/g, '_')
+}
+
+window._renderServiceSection = function(profilePath, service) {
+  const pi = window._onboardingState.profileIntegrations[profilePath]
+  const entries = (pi && pi[service]) || []
+
+  const serviceLabels = { jira: 'Jira', github: 'GitHub', calendar: 'Calendar' }
+  const serviceIcons = {
+    jira: `<img src="../assets/jira.svg" style="width:14px;height:14px;object-fit:contain;" onerror="this.style.display='none'">`,
+    github: `<img src="../assets/github.svg" style="width:14px;height:14px;object-fit:contain;" onerror="this.style.display='none'">`,
+    calendar: `<img src="../assets/google-calendar.svg" style="width:14px;height:14px;object-fit:contain;" onerror="this.style.display='none'">`
+  }
+  const addLabels = { jira: 'Add board', github: 'Add repo', calendar: 'Add calendar' }
+  const placeholders = {
+    jira: 'https://company.atlassian.net/jira/software/projects/KEY/boards/1',
+    github: 'https://github.com/org/repo',
+    calendar: 'https://calendar.google.com/calendar/r?cid=...'
   }
 
-  // Re-render just the browser sections
+  const safeId = _safeProfileId(profilePath)
+
+  return `
+    <div id="svc-section-${safeId}-${service}" style="margin-bottom:12px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+        <div style="display:flex; align-items:center; gap:6px;">
+          ${serviceIcons[service] || ''}
+          <span style="font-size:12px; font-weight:600; color:var(--text-secondary);">${serviceLabels[service]}</span>
+        </div>
+        <button
+          onclick="window._addServiceUrl('${profilePath.replace(/'/g, "\\'")}', '${service}')"
+          style="
+            display:flex; align-items:center; gap:4px;
+            padding:3px 8px;
+            background:transparent; color:var(--accent);
+            border:1px solid var(--accent); border-radius:var(--radius-sm);
+            font-size:11px; font-weight:600;
+            font-family:'IBM Plex Sans',sans-serif;
+            cursor:pointer; transition:background 0.15s;
+          "
+          onmouseover="this.style.background='var(--accent-muted)'"
+          onmouseout="this.style.background='transparent'"
+        >
+          <i data-lucide="plus" style="width:10px; height:10px;"></i>
+          ${addLabels[service]}
+        </button>
+      </div>
+      <div id="url-list-${safeId}-${service}" style="display:flex; flex-direction:column; gap:4px;">
+        ${entries.map((entry, idx) => _renderUrlRow(profilePath, service, idx, entry)).join('')}
+        ${entries.length === 0 ? `<div style="font-size:11px; color:var(--text-muted); padding:2px 0;">No ${service} URLs added yet.</div>` : ''}
+      </div>
+    </div>
+  `
+}
+
+function _renderUrlRow(profilePath, service, idx, entry) {
+  const safeId = _safeProfileId(profilePath)
+  let indicator = ''
+  if (entry.valid === true) {
+    indicator = `<i data-lucide="check-circle" style="width:13px;height:13px;color:var(--success);flex-shrink:0;"></i>`
+  } else if (entry.valid === false) {
+    indicator = `<i data-lucide="x-circle" style="width:13px;height:13px;color:var(--danger);flex-shrink:0;"></i>`
+  }
+
+  return `
+    <div style="display:flex; align-items:center; gap:6px;">
+      <input
+        type="url"
+        id="url-input-${safeId}-${service}-${idx}"
+        placeholder="${service === 'jira' ? 'https://company.atlassian.net/jira/software/projects/KEY/boards/1' : service === 'github' ? 'https://github.com/org/repo' : 'https://calendar.google.com/...'}"
+        value="${entry.url || ''}"
+        oninput="window._onboardingState.profileIntegrations['${profilePath.replace(/'/g, "\\'")}']['${service}'][${idx}].url=this.value"
+        onblur="window._validateServiceUrl('${profilePath.replace(/'/g, "\\'")}', '${service}', ${idx})"
+        onpaste="setTimeout(()=>window._validateServiceUrl('${profilePath.replace(/'/g, "\\'")}', '${service}', ${idx}), 0)"
+        style="
+          flex:1; min-width:0;
+          background:var(--bg-base); border:1px solid var(--border);
+          border-radius:var(--radius-sm); padding:6px 10px;
+          font-size:12px; color:var(--text-primary);
+          font-family:'IBM Plex Sans',sans-serif; outline:none;
+          transition:border-color 0.15s;
+        "
+        onfocus="this.style.borderColor='var(--accent)'"
+        onblur="this.style.borderColor='var(--border)'"
+      />
+      <div id="url-indicator-${safeId}-${service}-${idx}" style="width:16px;height:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+        ${indicator}
+      </div>
+      <button
+        onclick="window._removeServiceUrl('${profilePath.replace(/'/g, "\\'")}', '${service}', ${idx})"
+        style="
+          width:22px; height:22px; flex-shrink:0;
+          background:transparent; border:1px solid var(--border);
+          border-radius:var(--radius-sm); cursor:pointer;
+          display:flex; align-items:center; justify-content:center;
+          color:var(--text-muted); transition:border-color 0.15s, color 0.15s;
+        "
+        onmouseover="this.style.borderColor='var(--danger)';this.style.color='var(--danger)'"
+        onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-muted)'"
+      >
+        <i data-lucide="x" style="width:10px; height:10px;"></i>
+      </button>
+    </div>
+  `
+}
+
+window._toggleProfileEnabled = function(profilePath) {
+  const pi = window._onboardingState.profileIntegrations
+  if (!pi[profilePath]) {
+    pi[profilePath] = { enabled: true, jira: [], github: [], calendar: [] }
+  } else {
+    pi[profilePath].enabled = !pi[profilePath].enabled
+  }
+
+  // Re-render browser sections
   const sections = document.getElementById('browser-sections')
   if (sections) {
     sections.innerHTML = window._renderBrowserSections()
@@ -488,83 +543,238 @@ window._toggleProfile = function(path) {
   }
 }
 
-window._integrationCard = function({ id, label, sub, logo, enabled, url, placeholder, stateKey, logoBg }) {
-  const bg = logoBg || 'transparent'
-  return `
-    <div style="border:1px solid var(--border); border-radius:var(--radius); margin-bottom:8px; overflow:hidden;">
-      <div style="
-        display:flex; align-items:center; justify-content:space-between;
-        padding:12px 16px; background:var(--bg-raised); cursor:pointer;
-      " onclick="window._toggleIntegration('${id}')">
-        <div style="display:flex; align-items:center; gap:10px;">
-          <div style="
-            width:28px; height:28px; border-radius:6px; flex-shrink:0;
-            background:${bg}; display:flex; align-items:center; justify-content:center;
-            overflow:hidden;
-          ">
-            <img src="${logo}" alt="${label}" style="width:18px; height:18px; object-fit:contain;"
-              onerror="this.style.display='none'; this.parentElement.innerHTML='<span style=\\'font-size:11px;font-weight:600;color:var(--text-muted);\\'>?</span>'"
-            />
-          </div>
-          <div>
-            <div style="font-size:14px; font-weight:500; color:var(--text-primary);">${label}</div>
-            <div style="font-size:12px; color:var(--text-muted);">${sub}</div>
-          </div>
-        </div>
-        <div id="${id}-toggle" style="
-          width:36px; height:20px; border-radius:10px;
-          background:${enabled ? 'var(--accent)' : 'var(--border)'};
-          position:relative; transition:background 0.2s; flex-shrink:0;
-        ">
-          <div style="
-            width:16px; height:16px; border-radius:50%; background:#fff;
-            position:absolute; top:2px;
-            left:${enabled ? '18px' : '2px'};
-            transition:left 0.2s;
-          "></div>
-        </div>
-      </div>
-      <div id="${id}-expand" style="
-        overflow:hidden;
-        max-height:${enabled ? '80px' : '0'};
-        transition:max-height 0.25s ease;
-      ">
-        <div style="padding:12px 16px; border-top:1px solid var(--border-subtle);">
-          <input
-            id="${id}-url"
-            type="url"
-            placeholder="${placeholder}"
-            value="${url}"
-            oninput="window._onboardingState.${stateKey}=this.value"
-            style="
-              width:100%; box-sizing:border-box;
-              background:var(--bg-base); border:1px solid var(--border);
-              border-radius:var(--radius); padding:8px 12px;
-              font-size:13px; color:var(--text-primary);
-              font-family:'IBM Plex Sans',sans-serif; outline:none;
-              transition:border-color 0.15s;
-            "
-            onfocus="this.style.borderColor='var(--accent)'"
-            onblur="this.style.borderColor='var(--border)'"
-          />
-        </div>
-      </div>
-    </div>
-  `
+window._addServiceUrl = function(profilePath, service) {
+  const pi = window._onboardingState.profileIntegrations
+  if (!pi[profilePath]) pi[profilePath] = { enabled: true, jira: [], github: [], calendar: [] }
+  if (!pi[profilePath][service]) pi[profilePath][service] = []
+  pi[profilePath][service].push({ url: '', label: '', valid: null })
+
+  const safeId = _safeProfileId(profilePath)
+  const listEl = document.getElementById(`url-list-${safeId}-${service}`)
+  if (listEl) {
+    const entries = pi[profilePath][service]
+    listEl.innerHTML = entries.map((e, i) => _renderUrlRow(profilePath, service, i, e)).join('')
+    if (typeof lucide !== 'undefined') lucide.createIcons()
+    // Focus newly added input
+    const newInput = document.getElementById(`url-input-${safeId}-${service}-${entries.length - 1}`)
+    if (newInput) newInput.focus()
+  }
 }
 
-window._toggleIntegration = function(type) {
-  window._onboardingState[type + 'Enabled'] = !window._onboardingState[type + 'Enabled']
-  const enabled = window._onboardingState[type + 'Enabled']
-
-  const toggle = document.getElementById(type + '-toggle')
-  if (toggle) {
-    toggle.style.background = enabled ? 'var(--accent)' : 'var(--border)'
-    toggle.querySelector('div').style.left = enabled ? '18px' : '2px'
+window._removeServiceUrl = function(profilePath, service, idx) {
+  const pi = window._onboardingState.profileIntegrations
+  if (pi[profilePath] && pi[profilePath][service]) {
+    pi[profilePath][service].splice(idx, 1)
   }
 
-  const expand = document.getElementById(type + '-expand')
-  if (expand) expand.style.maxHeight = enabled ? '80px' : '0'
+  const safeId = _safeProfileId(profilePath)
+  const listEl = document.getElementById(`url-list-${safeId}-${service}`)
+  if (listEl) {
+    const entries = (pi[profilePath] && pi[profilePath][service]) || []
+    listEl.innerHTML = entries.length > 0
+      ? entries.map((e, i) => _renderUrlRow(profilePath, service, i, e)).join('')
+      : `<div style="font-size:11px; color:var(--text-muted); padding:2px 0;">No ${service} URLs added yet.</div>`
+    if (typeof lucide !== 'undefined') lucide.createIcons()
+  }
+}
+
+window._validateServiceUrl = function(profilePath, service, idx) {
+  const pi = window._onboardingState.profileIntegrations
+  if (!pi[profilePath] || !pi[profilePath][service] || !pi[profilePath][service][idx]) return
+
+  const entry = pi[profilePath][service][idx]
+  const url = entry.url || ''
+  if (!url.trim()) return
+
+  let valid = false
+  if (service === 'jira') {
+    valid = /^https?:\/\/[^/]+\.atlassian\.net\/(jira\/software\/projects\/[A-Z0-9]+|jira\/software\/projects\/[A-Z0-9]+\/boards\/\d+)/.test(url)
+  } else if (service === 'github') {
+    try {
+      const u = new URL(url)
+      const parts = u.pathname.replace(/^\//, '').replace(/\/$/, '').split('/')
+      valid = u.hostname === 'github.com' && parts.length === 2 && parts[0].length > 0 && parts[1].length > 0
+    } catch { valid = false }
+  } else if (service === 'calendar') {
+    valid = /^https?:\/\/(calendar\.google\.com|outlook\.office\.com\/calendar)/.test(url)
+  }
+
+  entry.valid = valid
+
+  // Patch just the indicator span
+  const safeId = _safeProfileId(profilePath)
+  const indicatorEl = document.getElementById(`url-indicator-${safeId}-${service}-${idx}`)
+  if (indicatorEl) {
+    let html = ''
+    if (valid === true) {
+      html = `<i data-lucide="check-circle" style="width:13px;height:13px;color:var(--success);flex-shrink:0;"></i>`
+    } else if (valid === false) {
+      html = `<i data-lucide="x-circle" style="width:13px;height:13px;color:var(--danger);flex-shrink:0;"></i>`
+    }
+    indicatorEl.innerHTML = html
+    if (typeof lucide !== 'undefined') lucide.createIcons()
+  }
+}
+
+window._selectColor = function(color) {
+  const nameInput = document.getElementById('ws-name')
+  if (nameInput) window._onboardingState.name = nameInput.value
+  window._onboardingState.color = color
+  window._renderOnboardingStep(1)
+}
+
+window._detectProfiles = function() {
+  const btn = document.getElementById('detect-btn')
+  if (btn) {
+    btn.disabled = true
+    btn.innerHTML = `<i data-lucide="loader" style="width:14px; height:14px; color:var(--accent); animation:spin 1s linear infinite;"></i> Scanning…`
+    if (typeof lucide !== 'undefined') lucide.createIcons()
+  }
+
+  const finish = (profiles) => {
+    window._onboardingState.detectedProfiles = { chrome: profiles }
+    const sections = document.getElementById('browser-sections')
+    if (sections) {
+      sections.innerHTML = window._renderBrowserSections()
+      if (typeof lucide !== 'undefined') lucide.createIcons()
+    }
+    if (btn) {
+      btn.disabled = false
+      btn.innerHTML = `<i data-lucide="check" style="width:14px; height:14px; color:var(--success);"></i> Profiles detected`
+      if (typeof lucide !== 'undefined') lucide.createIcons()
+    }
+  }
+
+  if (window.api && window.api.scanProfiles) {
+    window.api.scanProfiles().then(rawProfiles => {
+      const profiles = rawProfiles.map(p => ({
+        name: p.name,
+        avatar: p.avatarText || p.name.charAt(0).toUpperCase(),
+        path: p.dirName,
+        email: p.email || ''
+      }))
+      finish(profiles)
+    }).catch(() => {
+      // Fall back to mock on error
+      finish(_mockProfiles())
+    })
+  } else {
+    setTimeout(() => finish(_mockProfiles()), 900)
+  }
+}
+
+function _mockProfiles() {
+  return [
+    { name: 'Personal',  avatar: 'P', path: 'Default',   email: 'you@gmail.com' },
+    { name: 'Work',      avatar: 'W', path: 'Profile 1', email: 'you@company.com' },
+    { name: 'Client A',  avatar: 'C', path: 'Profile 2', email: 'you@clienta.com' },
+    { name: 'Client B',  avatar: 'B', path: 'Profile 3', email: 'you@clientb.com' }
+  ]
+}
+
+window._onboardingNext = function(currentStep) {
+  if (currentStep === 1) {
+    const nameInput = document.getElementById('ws-name')
+    if (nameInput) window._onboardingState.name = nameInput.value.trim()
+    if (!window._onboardingState.name) {
+      window.showToast('Please enter a workspace name.', 'error')
+      return
+    }
+    if (!window._onboardingState.color) {
+      window.showToast('Please select a color.', 'error')
+      return
+    }
+    window._renderOnboardingStep(2)
+  } else if (currentStep === 2) {
+    const modelInput = document.getElementById('llm-model-name')
+    if (modelInput) window._onboardingState.llmModelName = modelInput.value.trim()
+    const keyInput = document.getElementById('llm-api-key')
+    if (keyInput) window._onboardingState.llmApiKey = keyInput.value
+    if (!window._onboardingState.llmModelName) {
+      window.showToast('Please enter a model name.', 'error')
+      return
+    }
+    window._renderOnboardingStep(3)
+  }
+}
+
+window._onboardingFinish = function() {
+  const state = window._onboardingState
+  const detected = state.detectedProfiles
+  const chromeProfiles = (detected && detected.chrome) || []
+
+  // Build flat integrations list from profileIntegrations state
+  const integrations = []
+  for (const [profilePath, data] of Object.entries(state.profileIntegrations)) {
+    if (!data.enabled) continue
+    const profile = chromeProfiles.find(p => p.path === profilePath) || {}
+
+    for (const service of ['jira', 'github', 'calendar']) {
+      const urls = (data[service] || [])
+        .filter(e => e.url && e.url.trim())
+        .map(e => e.url.trim())
+      if (urls.length > 0) {
+        integrations.push({
+          profilePath,
+          profileName: profile.name || profilePath,
+          profileEmail: profile.email || '',
+          service,
+          urls
+        })
+      }
+    }
+  }
+
+  const config = {
+    name: state.name,
+    color: state.color,
+    llmModelName: state.llmModelName,
+    llmApiKey: state.llmApiKey,
+    integrations,
+    customLinks: state.customLinks.filter(l => l.url && l.url.trim())
+  }
+
+  if (!window._appState.workspaces) window._appState.workspaces = []
+
+  const saveAndNavigate = (workspaceId) => {
+    // Add workspace to in-memory state for loading screen
+    const ws = {
+      id: workspaceId,
+      name: config.name,
+      color: config.color,
+      jiraEnabled: integrations.some(i => i.service === 'jira'),
+      githubEnabled: integrations.some(i => i.service === 'github'),
+      gcalEnabled: integrations.some(i => i.service === 'calendar'),
+      integrations: config.integrations
+    }
+    window._appState.workspaces.push(ws)
+    window._appState.activeWorkspace = ws.name
+    window.navigate('loading')
+    if (typeof window.renderSidebar === 'function') window.renderSidebar()
+  }
+
+  if (window.api && window.api.saveWorkspace) {
+    window.api.saveWorkspace(config)
+      .then(result => saveAndNavigate(result.workspaceId))
+      .catch(err => {
+        console.error('[onboarding] saveWorkspace failed:', err)
+        window.showToast('Failed to save workspace: ' + (err.message || err), 'error')
+      })
+  } else {
+    saveAndNavigate('local-' + Date.now())
+  }
+}
+
+window._toggleApiKeyVisibility = function() {
+  const input = document.getElementById('llm-api-key')
+  const btn = document.getElementById('llm-key-toggle')
+  if (!input) return
+  const isHidden = input.type === 'password'
+  input.type = isHidden ? 'text' : 'password'
+  if (btn) {
+    btn.innerHTML = `<i data-lucide="${isHidden ? 'eye-off' : 'eye'}" style="width:14px; height:14px;"></i>`
+    if (typeof lucide !== 'undefined') lucide.createIcons()
+  }
 }
 
 window._renderCustomLinks = function() {
@@ -605,7 +815,6 @@ window._addCustomLink = function() {
 }
 
 window._openCustomLinkModal = function() {
-  // Remove any existing modal
   const existing = document.getElementById('custom-link-modal')
   if (existing) existing.remove()
 
@@ -625,7 +834,6 @@ window._openCustomLinkModal = function() {
       width:100%; max-width:480px;
       box-shadow:0 24px 48px rgba(0,0,0,0.5);
     ">
-      <!-- Header -->
       <div style="display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:20px;">
         <div style="
           width:36px; height:36px; border-radius:var(--radius);
@@ -651,7 +859,6 @@ window._openCustomLinkModal = function() {
         Since we don't automatically support every kind of site by default, we need to understand a bit about it so we can pull the right data.
       </p>
 
-      <!-- Q1 -->
       <div style="margin-bottom:20px;">
         <label style="
           display:block; font-size:12px; font-weight:600;
@@ -665,40 +872,17 @@ window._openCustomLinkModal = function() {
             position:absolute; left:10px; top:50%; transform:translateY(-50%);
             width:13px; height:13px; color:var(--text-muted); pointer-events:none;
           "></i>
-          <input
-            id="cl-modal-url"
-            type="url"
-            placeholder="https://yourcompany.notion.so"
-            style="
-              width:100%; box-sizing:border-box;
-              background:var(--bg-raised); border:1px solid var(--border);
-              border-radius:var(--radius); padding:9px 12px 9px 30px;
-              font-size:13px; color:var(--text-primary);
-              font-family:'IBM Plex Sans',sans-serif; outline:none;
-              transition:border-color 0.15s;
-            "
-            onfocus="this.style.borderColor='var(--accent)'"
-            onblur="this.style.borderColor='var(--border)'"
+          <input id="cl-modal-url" type="url" placeholder="https://yourcompany.notion.so"
+            style="width:100%; box-sizing:border-box; background:var(--bg-raised); border:1px solid var(--border); border-radius:var(--radius); padding:9px 12px 9px 30px; font-size:13px; color:var(--text-primary); font-family:'IBM Plex Sans',sans-serif; outline:none; transition:border-color 0.15s;"
+            onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"
           />
         </div>
-        <input
-          id="cl-modal-label"
-          type="text"
-          placeholder="Give it a name  (e.g. Notion Docs, Confluence Wiki)"
-          style="
-            width:100%; box-sizing:border-box; margin-top:6px;
-            background:var(--bg-raised); border:1px solid var(--border);
-            border-radius:var(--radius); padding:9px 12px;
-            font-size:13px; color:var(--text-primary);
-            font-family:'IBM Plex Sans',sans-serif; outline:none;
-            transition:border-color 0.15s;
-          "
-          onfocus="this.style.borderColor='var(--accent)'"
-          onblur="this.style.borderColor='var(--border)'"
+        <input id="cl-modal-label" type="text" placeholder="Give it a name (e.g. Notion Docs, Confluence Wiki)"
+          style="width:100%; box-sizing:border-box; margin-top:6px; background:var(--bg-raised); border:1px solid var(--border); border-radius:var(--radius); padding:9px 12px; font-size:13px; color:var(--text-primary); font-family:'IBM Plex Sans',sans-serif; outline:none; transition:border-color 0.15s;"
+          onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"
         />
       </div>
 
-      <!-- Q2 -->
       <div style="margin-bottom:28px;">
         <label style="
           display:block; font-size:12px; font-weight:600;
@@ -707,46 +891,21 @@ window._openCustomLinkModal = function() {
         ">
           <span style="color:var(--accent); margin-right:6px;">2.</span>What data do you want to track from this page?
         </label>
-        <textarea
-          id="cl-modal-description"
+        <textarea id="cl-modal-description"
           placeholder="e.g. I want to track open tasks assigned to me, sprint status, and any pages I've been mentioned in."
           rows="3"
-          style="
-            width:100%; box-sizing:border-box;
-            background:var(--bg-raised); border:1px solid var(--border);
-            border-radius:var(--radius); padding:9px 12px;
-            font-size:13px; color:var(--text-primary); line-height:1.55;
-            font-family:'IBM Plex Sans',sans-serif; outline:none; resize:vertical;
-            transition:border-color 0.15s;
-          "
-          onfocus="this.style.borderColor='var(--accent)'"
-          onblur="this.style.borderColor='var(--border)'"
+          style="width:100%; box-sizing:border-box; background:var(--bg-raised); border:1px solid var(--border); border-radius:var(--radius); padding:9px 12px; font-size:13px; color:var(--text-primary); line-height:1.55; font-family:'IBM Plex Sans',sans-serif; outline:none; resize:vertical; transition:border-color 0.15s;"
+          onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"
         ></textarea>
       </div>
 
-      <!-- Actions -->
       <div style="display:flex; gap:8px;">
-        <button onclick="window._closeCustomLinkModal()" style="
-          flex:1; padding:9px 14px;
-          background:var(--bg-raised); color:var(--text-secondary);
-          border:1px solid var(--border); border-radius:var(--radius);
-          font-size:13px; font-weight:600;
-          font-family:'IBM Plex Sans',sans-serif;
-          cursor:pointer; transition:opacity 0.15s;
-        " onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'">Cancel</button>
-        <button onclick="window._submitCustomLinkModal()" style="
-          flex:2; padding:9px 14px;
-          background:var(--accent); color:#fff;
-          border:none; border-radius:var(--radius);
-          font-size:13px; font-weight:600;
-          font-family:'IBM Plex Sans',sans-serif;
-          cursor:pointer; transition:opacity 0.15s;
-        " onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">Add Link</button>
+        <button onclick="window._closeCustomLinkModal()" style="flex:1; padding:9px 14px; background:var(--bg-raised); color:var(--text-secondary); border:1px solid var(--border); border-radius:var(--radius); font-size:13px; font-weight:600; font-family:'IBM Plex Sans',sans-serif; cursor:pointer; transition:opacity 0.15s;" onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'">Cancel</button>
+        <button onclick="window._submitCustomLinkModal()" style="flex:2; padding:9px 14px; background:var(--accent); color:#fff; border:none; border-radius:var(--radius); font-size:13px; font-weight:600; font-family:'IBM Plex Sans',sans-serif; cursor:pointer; transition:opacity 0.15s;" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">Add Link</button>
       </div>
     </div>
   `
 
-  // Close on backdrop click
   modal.addEventListener('click', function(e) {
     if (e.target === modal) window._closeCustomLinkModal()
   })
@@ -754,7 +913,6 @@ window._openCustomLinkModal = function() {
   document.body.appendChild(modal)
   if (typeof lucide !== 'undefined') lucide.createIcons()
 
-  // Focus the URL field
   const urlInput = document.getElementById('cl-modal-url')
   if (urlInput) setTimeout(() => urlInput.focus(), 50)
 }
@@ -794,76 +952,6 @@ window._removeCustomLink = function(i) {
   const list = document.getElementById('custom-links-list')
   if (list) {
     list.innerHTML = window._renderCustomLinks()
-    if (typeof lucide !== 'undefined') lucide.createIcons()
-  }
-}
-
-window._updateCustomLink = function(i, field, value) {
-  if (window._onboardingState.customLinks[i]) {
-    window._onboardingState.customLinks[i][field] = value
-  }
-}
-
-window._onboardingNext = function(currentStep) {
-  if (currentStep === 1) {
-    const nameInput = document.getElementById('ws-name')
-    if (nameInput) window._onboardingState.name = nameInput.value.trim()
-    if (!window._onboardingState.name) {
-      window.showToast('Please enter a workspace name.', 'error')
-      return
-    }
-    if (!window._onboardingState.color) {
-      window.showToast('Please select a color.', 'error')
-      return
-    }
-    window._renderOnboardingStep(2)
-  } else if (currentStep === 2) {
-    const modelInput = document.getElementById('llm-model-name')
-    if (modelInput) window._onboardingState.llmModelName = modelInput.value.trim()
-    const keyInput = document.getElementById('llm-api-key')
-    if (keyInput) window._onboardingState.llmApiKey = keyInput.value
-    if (!window._onboardingState.llmModelName) {
-      window.showToast('Please enter a model name.', 'error')
-      return
-    }
-    window._renderOnboardingStep(3)
-  } else if (currentStep === 3) {
-    window._renderOnboardingStep(4)
-  }
-}
-
-window._onboardingFinish = function() {
-  const state = window._onboardingState
-  const workspace = {
-    name: state.name,
-    color: state.color,
-    profiles: state.profiles,
-    llmModelName: state.llmModelName,
-    llmApiKey: state.llmApiKey,
-    jiraEnabled: state.jiraEnabled,     jiraUrl: state.jiraUrl,
-    githubEnabled: state.githubEnabled, githubUrl: state.githubUrl,
-    gmailEnabled: state.gmailEnabled,   gmailUrl: state.gmailUrl,
-    gcalEnabled: state.gcalEnabled,     gcalUrl: state.gcalUrl,
-    outlookEnabled: state.outlookEnabled, outlookUrl: state.outlookUrl,
-    customLinks: state.customLinks.filter(l => l.url.trim())
-  }
-  if (!window._appState.workspaces) window._appState.workspaces = []
-  window._appState.workspaces.push(workspace)
-  window._appState.activeWorkspace = workspace.name
-
-  window.navigate('loading')
-  if (typeof window.renderSidebar === 'function') window.renderSidebar()
-}
-
-
-window._toggleApiKeyVisibility = function() {
-  const input = document.getElementById('llm-api-key')
-  const btn = document.getElementById('llm-key-toggle')
-  if (!input) return
-  const isHidden = input.type === 'password'
-  input.type = isHidden ? 'text' : 'password'
-  if (btn) {
-    btn.innerHTML = `<i data-lucide="${isHidden ? 'eye-off' : 'eye'}" style="width:14px; height:14px;"></i>`
     if (typeof lucide !== 'undefined') lucide.createIcons()
   }
 }

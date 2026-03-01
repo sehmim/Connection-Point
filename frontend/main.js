@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, shell } = require('electron')
 const path = require('path')
+const { init } = require('./src/main')
 
 let win
 
@@ -20,6 +21,7 @@ function createWindow() {
   })
 
   win.loadFile('renderer/index.html')
+  win.webContents.on('did-finish-load', () => init(win))
 }
 
 ipcMain.on('open-external', (_, url) => shell.openExternal(url))

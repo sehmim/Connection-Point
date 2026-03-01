@@ -12,15 +12,27 @@ window._ALL_SERVICES = [
   { key: 'outlook', label: 'Outlook Calendar',  logo: '../assets/outlook.svg'         },
 ]
 
-// ── Mock fetch (Phase 1) ──────────────────────────────────────────────────────
-// Phase 2: replace body with window.api.fetchService(wsName, serviceId)
+// ── Fetch via IPC (Phase 2) ───────────────────────────────────────────────────
 window._mockFetchService = function(wsName, serviceId) {
   const key = wsName + ':' + serviceId
   window._fetchState[key] = { status: 'fetching', message: '', count: null, ts: null }
 
+  if (window.api && window.api.fetchService) {
+    return window.api.fetchService(wsName, serviceId)
+      .then(function(r) {
+        window._fetchState[key] = { status: 'done', message: '', count: r.count || 0, ts: Date.now() }
+        return r
+      })
+      .catch(function(e) {
+        const msg = (e && e.message) || 'Sync failed'
+        window._fetchState[key] = { status: 'error', message: msg, count: null, ts: Date.now() }
+        throw e
+      })
+  }
+
+  // Fallback mock when running without backend
   const delay = 800 + Math.random() * 1200
   const succeed = Math.random() < 0.8
-
   return new Promise(function(resolve, reject) {
     setTimeout(function() {
       if (succeed) {
