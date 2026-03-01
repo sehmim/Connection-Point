@@ -47,5 +47,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   const workspaces = await window.api.getWorkspaces()
   window._appState.workspaces = workspaces
 
-  navigate(workspaces.length > 0 ? 'overview' : 'auth')
+  // Check for an existing auth session
+  const session = typeof window._authGetSession === 'function' ? window._authGetSession() : null
+  if (session && session.email) {
+    navigate(workspaces.length > 0 ? 'overview' : 'onboarding')
+  } else {
+    navigate('auth')
+  }
 })

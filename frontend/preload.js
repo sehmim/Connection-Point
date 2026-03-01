@@ -17,5 +17,6 @@ contextBridge.exposeInMainWorld('api', {
     { name: 'Personal', avatar: 'P', path: 'Default' },
     { name: 'Client A', avatar: 'C', path: 'Profile 2' }
   ]),
-  sendChat: (message) => Promise.resolve({ text: 'Mock response' })
+  sendChat: (message) => Promise.resolve({ text: 'Mock response' }),
+  openExternal: (url) => ipcRenderer.send('open-external', url)
 })

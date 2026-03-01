@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron')
+const { app, BrowserWindow, ipcMain, shell } = require('electron')
 const path = require('path')
 
 let win
@@ -22,6 +22,7 @@ function createWindow() {
   win.loadFile('renderer/index.html')
 }
 
+ipcMain.on('open-external', (_, url) => shell.openExternal(url))
 ipcMain.on('window-minimize', () => win && win.minimize())
 ipcMain.on('window-maximize', () => {
   if (!win) return

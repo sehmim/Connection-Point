@@ -124,6 +124,16 @@ window.renderSidebar = function() {
           " onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='transparent'">
             <i data-lucide="settings" style="width:15px; height:15px;"></i>
           </div>
+          <div onclick="window._sidebarLogout()" title="Log out" style="
+            width:36px; height:36px; border-radius:6px; cursor:pointer;
+            display:flex; align-items:center; justify-content:center;
+            color:var(--text-muted); transition:background 0.1s, color 0.1s; margin:0 auto;
+          "
+            onmouseover="this.style.background='var(--danger-muted)';this.style.color='var(--danger)'"
+            onmouseout="this.style.background='transparent';this.style.color='var(--text-muted)'"
+          >
+            <i data-lucide="log-out" style="width:15px; height:15px;"></i>
+          </div>
         </div>
       ` : `
 
@@ -131,15 +141,27 @@ window.renderSidebar = function() {
         <div style="flex:1;"></div>
 
         <!-- Bottom actions -->
-        <div style="padding: 8px; border-top: 1px solid var(--border-subtle); flex-shrink:0;">
+        <div style="padding:8px; border-top:1px solid var(--border-subtle); flex-shrink:0;">
           <div onclick="window.navigate('settings')" style="
-            display: flex; align-items: center; gap: 8px;
-            padding: 7px 10px; border-radius: 6px; cursor: pointer;
-            font-size: 13px; color: var(--text-secondary);
-            transition: background 0.1s;
+            display:flex; align-items:center; gap:8px;
+            padding:7px 10px; border-radius:6px; cursor:pointer;
+            font-size:13px; color:var(--text-secondary);
+            transition:background 0.1s;
           " onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='transparent'">
             <i data-lucide="settings" style="width:15px; height:15px; flex-shrink:0;"></i>
             <span>Settings</span>
+          </div>
+          <div onclick="window._sidebarLogout()" style="
+            display:flex; align-items:center; gap:8px;
+            padding:7px 10px; border-radius:6px; cursor:pointer;
+            font-size:13px; color:var(--text-secondary);
+            transition:background 0.1s, color 0.1s;
+          "
+            onmouseover="this.style.background='var(--danger-muted)';this.style.color='var(--danger)'"
+            onmouseout="this.style.background='transparent';this.style.color='var(--text-secondary)'"
+          >
+            <i data-lucide="log-out" style="width:15px; height:15px; flex-shrink:0;"></i>
+            <span>Log out</span>
           </div>
         </div>
       `}
@@ -215,4 +237,19 @@ window._sidebarNavClick = function(nav) {
 window._workspaceClick = function(name) {
   if (window._dashboardFilters) window._dashboardFilters.workspace = name
   window.navigate('dashboard')
+}
+
+window._sidebarLogout = function() {
+  if (typeof window._authClearSession === 'function') window._authClearSession()
+  // Reset in-memory state
+  if (window._appState) {
+    window._appState.workspaces = []
+    window._appState.activeWorkspace = null
+    window._appState.jiraItems = null
+    window._appState.githubItems = null
+    window._appState.calendarItems = null
+  }
+  if (window._fetchState) window._fetchState = {}
+  window.navigate('auth')
+  window.showToast('Signed out.', 'info')
 }
