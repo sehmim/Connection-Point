@@ -3,6 +3,37 @@ const { triggerManualSync, triggerManualSyncAll } = require('../services/sync-en
 const { getDb } = require('../db')
 
 function registerSyncIpc(win) {
+  // Scrape without touching the DB — for verification during onboarding
+  ipcMain.handle('scrape:run', async (_, opts) => {
+    const { profileDirName, service, urls } = opts || {}
+    console.log('[scrape:run] received', { profileDirName, service, urlCount: (urls || []).length })
+
+    if (!service || !urls || urls.length === 0) {
+      return { results: [], count: 0, error: 'Missing service or urls' }
+    }
+
+    try {
+      let result
+      if (service === 'jira') {
+        const { scrapeJiraBoardRaw } = require('../scrapers/jira.scraper')
+        result = await scrapeJiraBoardRaw(urls, profileDirName)
+      } else if (service === 'github') {
+        const { scrapeGithubRepoRaw } = require('../scrapers/github.scraper')
+        result = await scrapeGithubRepoRaw(urls, profileDirName)
+      } else if (service === 'calendar') {
+        const { scrapeCalendarRaw } = require('../scrapers/calendar.scraper')
+        result = await scrapeCalendarRaw(urls, profileDirName)
+      } else {
+        return { results: [], count: 0, error: 'Unknown service: ' + service }
+      }
+      console.log('[scrape:run] done', service, '— count:', result.count)
+      return result
+    } catch (err) {
+      console.error('[scrape:run] error', service, err.message)
+      return { results: [], count: 0, error: err.message }
+    }
+  })
+
   ipcMain.handle('sync:start', async (_, integrationIdOrWsName, serviceId) => {
     // Support both direct integrationId and wsName:serviceId from loading.js compat
     if (serviceId !== undefined) {

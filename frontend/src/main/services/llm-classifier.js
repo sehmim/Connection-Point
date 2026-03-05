@@ -6,11 +6,14 @@ function _decryptApiKey() {
   const { safeStorage } = require('electron')
   const db = getDb()
   const row = db.prepare("SELECT value FROM settings WHERE key = 'llm_api_key'").get()
-  if (!row) return null
-  if (safeStorage.isEncryptionAvailable()) {
-    return safeStorage.decryptString(Buffer.from(row.value, 'base64'))
+  if (row) {
+    if (safeStorage.isEncryptionAvailable()) {
+      return safeStorage.decryptString(Buffer.from(row.value, 'base64'))
+    }
+    return Buffer.from(row.value, 'base64').toString('utf8')
   }
-  return Buffer.from(row.value, 'base64').toString('utf8')
+  // Fall back to .env
+  return process.env.OPEN_AI_KEY || null
 }
 
 async function classifyItems(workspaceId) {
@@ -40,7 +43,7 @@ async function classifyItems(workspaceId) {
 
   if (items.length === 0) return
 
-  const model = store.get('llmModel') || 'gpt-4o-mini'
+  const model = store.get('llmModel') || process.env.OPEN_AI_MODEL
   const { OpenAI } = require('openai')
   const client = new OpenAI({ apiKey })
 

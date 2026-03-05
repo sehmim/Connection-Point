@@ -14,6 +14,12 @@ window._renderSettingsUI = function() {
   if (!container) return
 
   const s = window._settingsState
+  const storedWorkSpace = window.localStorage.getItem("workplaces");
+  // console.log("storedWorkSpaceObj", storedWorkSpaceObj);
+
+  // const storedWorkSpaceObj = JSON.parse(storedWorkSpace);
+  // console.log("storedWorkSpaceObj", storedWorkSpaceObj);
+
   const workspaces = (window._appState && window._appState.workspaces) || []
 
   container.innerHTML = `
@@ -30,6 +36,7 @@ window._renderSettingsUI = function() {
 
         ${[
           { id: 'workspaces', icon: 'layers',   label: 'Workspaces' },
+          { id: 'tracking',   icon: 'git-branch', label: 'Tracking Sites' },
           { id: 'general',    icon: 'sliders-horizontal', label: 'General' },
         ].map(item => `
           <div
@@ -63,7 +70,7 @@ window._renderSettingsUI = function() {
       <!-- ── Right content ── -->
       <div style="flex:1; overflow-y:auto; background:var(--bg-base);">
         <div style="max-width:640px; padding:32px 36px;">
-          ${s.section === 'workspaces' ? window._renderSettingsWorkspaces() : window._renderSettingsGeneral()}
+          ${s.section === 'workspaces' ? window._renderSettingsWorkspaces() : s.section === 'tracking' ? window._renderSettingsTrackingSites() : window._renderSettingsGeneral()}
         </div>
       </div>
 
@@ -75,7 +82,29 @@ window._renderSettingsUI = function() {
 
 window._settingsNav = function(section) {
   window._settingsState.section = section
+  if (section === 'tracking') {
+    window._settingsTrackingRepos = null  // clear cache so we reload
+    window._loadTrackingRepos()
+    return
+  }
   window._renderSettingsUI()
+}
+
+window._settingsTrackingRepos = null  // [{ url, hostname, label }] loaded from DB
+
+window._loadTrackingRepos = function() {
+  if (!window.api || !window.api.githubGetData) {
+    window._settingsTrackingRepos = []
+    window._renderSettingsUI()
+    return
+  }
+  window.api.githubGetData().then(function(data) {
+    window._settingsTrackingRepos = data.repos || []
+    window._renderSettingsUI()
+  }).catch(function() {
+    window._settingsTrackingRepos = []
+    window._renderSettingsUI()
+  })
 }
 
 // ── Workspaces section ────────────────────────────────────────────────────────
@@ -572,6 +601,219 @@ window._renderSettingsCustomLinks = function(ws, wsIdx) {
       }
     </div>
   `
+}
+
+// ── Tracking Sites section ────────────────────────────────────────────────────
+
+window._renderSettingsTrackingSites = function() {
+  const repos = window._settingsTrackingRepos
+
+  if (repos === null) {
+    return `
+      <h2 style="font-size:18px; font-weight:600; color:var(--text-primary); margin:0 0 4px;">Tracking Sites</h2>
+      <p style="font-size:13px; color:var(--text-muted); margin:0 0 24px;">GitHub repositories from all accounts.</p>
+      <div style="color:var(--text-muted); font-size:13px;">Loading…</div>
+    `
+  }
+
+  return `
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+      <h2 style="font-size:18px; font-weight:600; color:var(--text-primary); margin:0;">Tracking Sites</h2>
+    </div>
+    <p style="font-size:13px; color:var(--text-muted); margin:0 0 20px;">GitHub repositories from any account. Each hostname uses its own browser session.</p>
+
+    <!-- Add repo input -->
+    <div style="display:flex; gap:8px; margin-bottom:24px;">
+      <input
+        id="ts-url-input"
+        type="url"
+        placeholder="https://github.com/your-org/repo"
+        oninput="window._trackingInputChanged()"
+        onkeydown="if(event.key==='Enter'){ const b=document.getElementById('ts-add-btn'); if(b&&!b.disabled) window._trackingAddRepo() }"
+        style="
+          flex:1; padding:8px 12px; border:1px solid var(--border);
+          border-radius:var(--radius); background:var(--bg-base);
+          color:var(--text-primary); font-size:13px; outline:none;
+          transition:border-color 0.15s;
+        "
+        onfocus="this.style.borderColor='var(--accent)'"
+        onblur="this.style.borderColor='var(--border)'"
+      />
+      <button
+        id="ts-add-btn"
+        onclick="window._trackingAddRepo()"
+        disabled
+        style="
+          display:flex; align-items:center; gap:6px;
+          padding:8px 14px; background:var(--accent); color:#fff;
+          border:none; border-radius:var(--radius); font-size:13px;
+          font-weight:500; cursor:pointer; white-space:nowrap;
+          opacity:0.4;
+        "
+      >
+        <i data-lucide="plus" style="width:13px; height:13px;"></i>
+        Add Repo
+      </button>
+    </div>
+
+    <!-- Repo list -->
+    ${repos.length === 0 ? `
+      <div style="
+        border:1px dashed var(--border); border-radius:var(--radius-lg);
+        padding:40px 32px; text-align:center;
+      ">
+        <i data-lucide="git-branch" style="width:28px; height:28px; color:var(--text-muted); opacity:0.3; margin-bottom:10px;"></i>
+        <div style="font-size:14px; color:var(--text-secondary); margin-bottom:4px;">No repos connected yet</div>
+        <div style="font-size:12px; color:var(--text-muted);">Paste a GitHub URL above to get started.</div>
+      </div>
+    ` : `
+      <div style="border:1px solid var(--border); border-radius:var(--radius-lg); overflow:hidden;">
+        ${repos.map((r, i) => `
+          <div style="
+            display:flex; align-items:center; gap:12px;
+            padding:13px 16px;
+            ${i < repos.length - 1 ? 'border-bottom:1px solid var(--border-subtle);' : ''}
+          ">
+            <img src="../assets/github.svg" style="width:15px; height:15px; object-fit:contain; flex-shrink:0;"
+              onerror="this.style.display='none'">
+            <div style="flex:1; min-width:0;">
+              <div style="font-size:13px; font-weight:500; color:var(--text-primary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${r.label}</div>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:1px;">${r.url}</div>
+            </div>
+            <button
+              id="sync-btn-${i}"
+              onclick="window._syncTrackingSite(${i})"
+              style="
+                display:flex; align-items:center; gap:5px;
+                padding:5px 10px; flex-shrink:0;
+                background:var(--accent); color:#fff;
+                border:none; border-radius:var(--radius);
+                font-size:12px; font-weight:600;
+                font-family:'IBM Plex Sans',sans-serif;
+                cursor:pointer; transition:opacity 0.15s;
+              "
+              onmouseover="this.style.opacity='0.85'"
+              onmouseout="this.style.opacity='1'"
+            >
+              <i data-lucide="refresh-cw" style="width:11px; height:11px;"></i>
+              Sync
+            </button>
+            <button
+              onclick="window._trackingRemoveRepo(${i})"
+              title="Remove"
+              style="
+                display:flex; align-items:center; justify-content:center;
+                width:28px; height:28px; flex-shrink:0;
+                background:transparent; border:1px solid var(--border);
+                border-radius:var(--radius); cursor:pointer;
+                color:var(--text-muted); transition:border-color 0.15s, color 0.15s;
+              "
+              onmouseover="this.style.borderColor='var(--danger)'; this.style.color='var(--danger)'"
+              onmouseout="this.style.borderColor='var(--border)'; this.style.color='var(--text-muted)'"
+            >
+              <i data-lucide="x" style="width:12px; height:12px;"></i>
+            </button>
+          </div>
+        `).join('')}
+      </div>
+    `}
+  `
+}
+
+window._trackingInputChanged = function() {
+  const input = document.getElementById('ts-url-input')
+  const btn = document.getElementById('ts-add-btn')
+  if (!input || !btn) return
+  const url = input.value.trim()
+  const valid = /^https?:\/\/[^/]+\/[^/]+\/[^/]+/.test(url)
+  const duplicate = (window._settingsTrackingRepos || []).some(r => r.url === url)
+  btn.disabled = !valid || duplicate
+  btn.style.opacity = (!valid || duplicate) ? '0.4' : '1'
+  btn.style.cursor = (!valid || duplicate) ? 'not-allowed' : 'pointer'
+}
+
+window._trackingAddRepo = async function() {
+  const input = document.getElementById('ts-url-input')
+  const btn = document.getElementById('ts-add-btn')
+  if (!input) return
+  const url = input.value.trim()
+  if (!/^https?:\/\/[^/]+\/[^/]+\/[^/]+/.test(url)) return
+
+  btn.disabled = true
+  btn.innerHTML = '<i data-lucide="loader" style="width:13px;height:13px;"></i> Connecting…'
+  if (typeof lucide !== 'undefined') lucide.createIcons()
+
+  try {
+    await window.api.connectGithubSource(url)
+    const parsed = new URL(url)
+    const hostname = parsed.hostname
+    const pathParts = parsed.pathname.split('/').filter(Boolean)
+    const label = hostname + ' · ' + pathParts.slice(0, 2).join('/')
+    const repo = { url, hostname, label }
+
+    // Save repo to DB (no items yet — user can Sync after)
+    await window.api.githubSaveScrape({ repos: [repo], scrapes: [] })
+
+    input.value = ''
+    window.showToast('Repo added — click Sync to fetch issues & PRs', 'success')
+    window._loadTrackingRepos()  // reload list from DB
+  } catch (err) {
+    window.showToast('Failed to connect: ' + (err.message || err), 'error')
+    btn.disabled = false
+    btn.innerHTML = '<i data-lucide="plus" style="width:13px;height:13px;"></i> Add Repo'
+    if (typeof lucide !== 'undefined') lucide.createIcons()
+  }
+}
+
+window._trackingRemoveRepo = async function(idx) {
+  const repos = window._settingsTrackingRepos || []
+  const repo = repos[idx]
+  if (!repo) return
+  try {
+    await window.api.githubDeleteRepo(repo.url)
+    window._loadTrackingRepos()
+  } catch (err) {
+    window.showToast('Failed to remove: ' + (err.message || err), 'error')
+  }
+}
+
+window._syncTrackingSite = async function(idx) {
+  const repos = window._settingsTrackingRepos || []
+  const repo = repos[idx]
+  if (!repo) return
+
+  const btn = document.getElementById('sync-btn-' + idx)
+  if (btn) {
+    btn.disabled = true
+    btn.innerHTML = '<i data-lucide="loader" style="width:11px;height:11px;"></i> Syncing…'
+    if (typeof lucide !== 'undefined') lucide.createIcons()
+  }
+
+  try {
+    const result = await window.api.scrapeGithubIssues(repo.url)
+    const total = (result.issues ? result.issues.length : 0) + (result.prs ? result.prs.length : 0)
+    if (total > 0) {
+      await window.api.githubSaveScrape({
+        repos: [repo],
+        scrapes: [{ repoUrl: repo.url, items: [...(result.issues || []), ...(result.prs || [])] }]
+      })
+      console.log('[Tracking Sites] Issues:', result.issues)
+      console.log('[Tracking Sites] PRs:', result.prs)
+      window.showToast('Synced ' + result.issues.length + ' issues + ' + result.prs.length + ' PRs', 'success')
+    } else {
+      console.warn('[Tracking Sites] Nothing parsed — check main process terminal for debug info')
+      window.showToast('Nothing parsed — check console', 'error')
+    }
+  } catch (err) {
+    console.error('[Tracking Sites] Sync failed:', err)
+    window.showToast('Sync failed: ' + (err.message || err), 'error')
+  } finally {
+    if (btn) {
+      btn.disabled = false
+      btn.innerHTML = '<i data-lucide="refresh-cw" style="width:11px;height:11px;"></i> Sync'
+      if (typeof lucide !== 'undefined') lucide.createIcons()
+    }
+  }
 }
 
 // ── General section ───────────────────────────────────────────────────────────

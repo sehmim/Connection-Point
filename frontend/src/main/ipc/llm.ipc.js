@@ -5,11 +5,13 @@ const store = require('../services/store')
 function _decryptApiKey() {
   const db = getDb()
   const row = db.prepare("SELECT value FROM settings WHERE key = 'llm_api_key'").get()
-  if (!row) return null
-  if (safeStorage.isEncryptionAvailable()) {
-    return safeStorage.decryptString(Buffer.from(row.value, 'base64'))
+  if (row) {
+    if (safeStorage.isEncryptionAvailable()) {
+      return safeStorage.decryptString(Buffer.from(row.value, 'base64'))
+    }
+    return Buffer.from(row.value, 'base64').toString('utf8')
   }
-  return Buffer.from(row.value, 'base64').toString('utf8')
+  return process.env.OPEN_AI_KEY || null
 }
 
 function registerLlmIpc() {

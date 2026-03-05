@@ -1,118 +1,118 @@
-const { launchBrowser, navigateTo, fetchInPage, closeBrowser } = require('./browser')
-const { getDb } = require('../db')
-const { v4: uuidv4 } = require('uuid')
+const { createSession } = require('./browser')
 
-function detectCalendarSource(calendarUrl) {
-  if (calendarUrl.includes('calendar.google.com')) return 'gcal'
-  if (calendarUrl.includes('outlook.office.com')) return 'outlook'
-  return 'unknown'
-}
+// DOM scraper — navigates to the calendar URL in the user's logged-in Chrome session,
+// extracts event tiles from the rendered week/month view.
+// No API calls — purely what the browser renders.
 
-function extractCid(calendarUrl) {
+async function scrapeCalendarRaw(urls, profileDirName) {
+  const allResults = []
+  const session = await createSession(profileDirName)
+
   try {
-    const url = new URL(calendarUrl)
-    return url.searchParams.get('cid') || null
-  } catch {
-    return null
+    for (const calendarUrl of urls) {
+      try {
+        await session.navigateTo(calendarUrl)
+
+        // Wait for event chips to appear
+        await session.evaluateInPage(`
+          new Promise(resolve => {
+            const check = () => {
+              const events = document.querySelectorAll(
+                '[data-eventid], [data-eventchip], ' +
+                '[class*="event-chip"], [class*="KF4T3b"], ' +
+                'li[class*="event"], [role="gridcell"] [data-eventid]'
+              )
+              if (events.length > 0) return resolve()
+              setTimeout(check, 600)
+            }
+            setTimeout(resolve, 15000)
+            check()
+          })
+        `, { awaitPromise: true, timeout: 16000 })
+
+        const result = await session.evaluateInPage(`
+          (() => {
+            const events = []
+            const seen = new Set()
+
+            const chipSelectors = [
+              '[data-eventid]',
+              '[data-eventchip]',
+              '[class*="event-chip"]',
+              'li[class*="event"]',
+              '[role="gridcell"] a[class*="event"]',
+              '[class*="event-title-container"]',
+              '[class*="calendarEventTitle"]',
+              '.ms-CalendarDayGrid-event',
+              '[class*="eventItem"]',
+            ]
+
+            for (const sel of chipSelectors) {
+              const chips = document.querySelectorAll(sel)
+              if (chips.length === 0) continue
+
+              chips.forEach(chip => {
+                const titleEl = chip.querySelector(
+                  '[data-eventid-title], [class*="event-title"], [class*="title"], ' +
+                  '[class*="Yi8ynd"], h4, [aria-label]'
+                )
+                const title = titleEl
+                  ? titleEl.textContent.trim()
+                  : (chip.getAttribute('aria-label') || chip.textContent.slice(0, 80).trim())
+
+                if (!title || seen.has(title + chip.className)) return
+                seen.add(title + chip.className)
+
+                const timeEl = chip.querySelector('[class*="time"], [class*="KF4T3b"] span, time, [datetime]')
+                let time = timeEl ? timeEl.textContent.trim() : ''
+                if (!time) {
+                  const ariaLabel = chip.getAttribute('aria-label') || ''
+                  const timeMatch = ariaLabel.match(/^([\\d:apm\\s–]+),/)
+                  if (timeMatch) time = timeMatch[1].trim()
+                }
+
+                const cell = chip.closest('[data-datekey], [data-date], [class*="date-column"], td[data-date]')
+                const dateKey = cell
+                  ? (cell.getAttribute('data-datekey') || cell.getAttribute('data-date') || '')
+                  : ''
+
+                const calNameEl = chip.querySelector('[class*="calendar-name"], [class*="calendarTitle"]')
+                const calendarName = calNameEl ? calNameEl.textContent.trim() : ''
+
+                const allDayRow = chip.closest('[class*="all-day"], [data-allday="true"]')
+                const allDay = !!allDayRow
+
+                events.push({ title, time, dateKey, calendarName, allDay, sourceUrl: window.location.href })
+              })
+
+              if (events.length > 0) break
+            }
+
+            const headingEl = document.querySelector(
+              '[class*="current-date"], [class*="date-label"], ' +
+              '[class*="YyltNb"], h2[class*="heading"], [aria-label*="week of"], [aria-label*="month of"]'
+            )
+            const viewHeading = headingEl ? headingEl.textContent.trim() : document.title
+
+            return JSON.stringify({ events, viewHeading, url: window.location.href, pageTitle: document.title })
+          })()
+        `)
+
+        const parsed = JSON.parse(result)
+        console.log('[calendar-scraper] Raw DOM result from', calendarUrl, ':', parsed)
+        allResults.push({ calendarUrl, ...parsed })
+
+      } catch (err) {
+        console.error('[calendar-scraper] Error scraping', calendarUrl, err.message)
+        allResults.push({ calendarUrl, events: [], error: err.message })
+      }
+    }
+
+  } finally {
+    try { await session.close() } catch {}
   }
+
+  return { results: allResults, count: allResults.reduce((n, r) => n + (r.events || []).length, 0) }
 }
 
-async function scrapeCalendar(calendarUrl, profileDirName, workspaceId, profileId, integrationId) {
-  const source = detectCalendarSource(calendarUrl)
-
-  await launchBrowser(profileDirName)
-  await navigateTo(calendarUrl)
-
-  const db = getDb()
-  let totalFetched = 0
-
-  const insertEvent = db.prepare(`
-    INSERT OR REPLACE INTO calendar_events
-      (id, workspace_id, profile_id, integration_id, calendar_url, title, start, end, all_day, source, account, color, synced_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `)
-
-  if (source === 'gcal') {
-    const cid = extractCid(calendarUrl)
-    const calendarId = cid ? encodeURIComponent(cid) : 'primary'
-
-    const now = new Date()
-    const timeMin = now.toISOString()
-    const timeMax = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString()
-
-    const apiUrl = `https://www.googleapis.com/calendar/v3/calendars/${calendarId}/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime&maxResults=100`
-
-    const resp = await fetchInPage(apiUrl)
-    if (resp.ok) {
-      const data = JSON.parse(resp.body)
-      const events = data.items || []
-
-      db.transaction(() => {
-        for (const event of events) {
-          const allDay = !event.start?.dateTime
-          const start = event.start?.dateTime || event.start?.date || null
-          const end = event.end?.dateTime || event.end?.date || null
-          insertEvent.run(
-            event.id || uuidv4(),
-            workspaceId,
-            profileId,
-            integrationId,
-            calendarUrl,
-            event.summary || '(No title)',
-            start,
-            end,
-            allDay ? 1 : 0,
-            'gcal',
-            event.organizer?.email || null,
-            event.colorId || null,
-            Date.now()
-          )
-        }
-      })()
-
-      totalFetched = events.length
-    }
-  } else if (source === 'outlook') {
-    // Try Microsoft Graph API — available if user is signed into outlook.office.com
-    const now = new Date()
-    const startDateTime = now.toISOString()
-    const endDateTime = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString()
-
-    const resp = await fetchInPage(
-      `https://graph.microsoft.com/v1.0/me/calendarview?startDateTime=${startDateTime}&endDateTime=${endDateTime}&$top=100&$orderby=start/dateTime`,
-      { headers: { 'Content-Type': 'application/json' } }
-    )
-    if (resp.ok) {
-      const data = JSON.parse(resp.body)
-      const events = data.value || []
-
-      db.transaction(() => {
-        for (const event of events) {
-          const allDay = event.isAllDay ? 1 : 0
-          insertEvent.run(
-            event.id || uuidv4(),
-            workspaceId,
-            profileId,
-            integrationId,
-            calendarUrl,
-            event.subject || '(No title)',
-            event.start?.dateTime || null,
-            event.end?.dateTime || null,
-            allDay,
-            'outlook',
-            event.organizer?.emailAddress?.address || null,
-            event.categories?.[0] || null,
-            Date.now()
-          )
-        }
-      })()
-
-      totalFetched = events.length
-    }
-  }
-
-  await closeBrowser()
-  return { count: totalFetched }
-}
-
-module.exports = { scrapeCalendar }
+module.exports = { scrapeCalendarRaw }

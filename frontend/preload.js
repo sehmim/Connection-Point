@@ -29,12 +29,9 @@ contextBridge.exposeInMainWorld('api', {
   getGithubDetail: (id) => ipcRenderer.invoke('data:github-detail', id),
   getCalendarEvents: (range) => ipcRenderer.invoke('data:calendar', range),
 
-  // Sync
-  startSync: (integrationId) => ipcRenderer.invoke('sync:start', integrationId),
-  startSyncAll: (workspaceId) => ipcRenderer.invoke('sync:start-all', workspaceId),
-  getSyncStatus: () => ipcRenderer.invoke('sync:get-status'),
-  // loading.js compat — fetchService(wsName, serviceId)
-  fetchService: (wsName, serviceId) => ipcRenderer.invoke('sync:start', wsName, serviceId),
+  // Scrape — DOM-only, no DB writes, for verification
+  // { profileDirName, service, urls } → { results, count, error? }
+  scrapeRaw: (opts) => ipcRenderer.invoke('scrape:run', opts),
 
   // Live sync status push events
   onSyncStatus: (cb) => ipcRenderer.on('sync:status', (_, data) => cb(data)),
@@ -48,6 +45,14 @@ contextBridge.exposeInMainWorld('api', {
   // Settings
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSetting: (key, value) => ipcRenderer.invoke('settings:set', key, value),
+
+  // GitHub source auth — opens persisted session popup per hostname
+  connectGithubSource: (url) => ipcRenderer.invoke('connect-github-source', url),
+  scrapeGithubIssues: (repoUrl) => ipcRenderer.invoke('scrape-github-issues', repoUrl),
+  githubSaveScrape: (data) => ipcRenderer.invoke('github:save-scrape', data),
+  githubGetData: () => ipcRenderer.invoke('github:get-data'),
+  githubDeleteRepo: (url) => ipcRenderer.invoke('github:delete-repo', url),
+  githubScrapeDetail: (opts) => ipcRenderer.invoke('github:scrape-detail', opts),
 
   // Legacy stub (getItems) — keep for compatibility
   getItems: (filters) => ipcRenderer.invoke('data:jira', filters)

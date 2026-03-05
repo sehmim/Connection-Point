@@ -1,8 +1,5 @@
-const chromeLauncher = require('chrome-launcher')
+// chrome-launcher is ESM-only — must use dynamic import()
 const CDP = require('chrome-remote-interface')
-
-let chromeInstance = null
-let cdpClient = null
 
 const STEALTH_SCRIPT = `
   Object.defineProperty(navigator, 'webdriver', { get: () => false })
@@ -10,89 +7,106 @@ const STEALTH_SCRIPT = `
   window.chrome = { runtime: {} }
 `
 
+// Track which ports are in use so parallel scrapes get different ports
+const _usedPorts = new Set()
+
+function _allocatePort() {
+  for (let port = 9222; port < 9322; port++) {
+    if (!_usedPorts.has(port)) {
+      _usedPorts.add(port)
+      return port
+    }
+  }
+  throw new Error('No free CDP ports available (9222–9321)')
+}
+
 function timeout(ms, msg) {
   return new Promise((_, reject) => setTimeout(() => reject(new Error(msg || 'Timeout')), ms))
 }
 
-async function launchBrowser(profileDirName) {
-  if (cdpClient) return // already open
+// ── Browser session ────────────────────────────────────────────────────────────
+// Returns a session object { navigateTo, evaluateInPage, close }.
+// Each call to createSession() gets its own Chrome instance on its own port.
+async function createSession(profileDirName) {
+  const { launch } = await import('chrome-launcher')
+  const port = _allocatePort()
+
+  let chromeInstance = null
+  let cdpClient = null
 
   const flags = [
     '--headless=new',
     '--disable-blink-features=AutomationControlled',
     '--disable-features=IsolateOrigins,site-per-process',
     '--no-sandbox',
+    '--disable-extensions',
+    '--disable-notifications',
+    '--disable-infobars',
+    '--window-position=-10000,-10000',
+    '--window-size=1280,800',
     `--profile-directory=${profileDirName}`,
-    '--remote-debugging-port=9222'
+    `--remote-debugging-port=${port}`
   ]
 
   try {
-    chromeInstance = await chromeLauncher.launch({
+    chromeInstance = await launch({
       chromeFlags: flags,
-      port: 9222
+      port,
+      logLevel: 'silent',
+      handleSIGINT: false,
+      startingUrl: 'about:blank'
     })
   } catch (err) {
-    if (err.code === 'EADDRINUSE' || err.message?.includes('EADDRINUSE')) {
-      // Chrome already running — attach to existing CDP session
-      chromeInstance = null
-    } else {
-      throw err
-    }
+    _usedPorts.delete(port)
+    throw err
   }
 
-  cdpClient = await CDP({ port: 9222 })
-
-  const { Page, Runtime, Network, Fetch } = cdpClient
-  await Promise.all([Page.enable(), Runtime.enable(), Network.enable(), Fetch.enable()])
-  await Page.addScriptToEvaluateOnNewDocument({ source: STEALTH_SCRIPT })
-}
-
-async function navigateTo(url) {
-  if (!cdpClient) throw new Error('Browser not launched')
-  const { Page } = cdpClient
-
-  await Promise.race([
-    (async () => {
-      await Page.navigate({ url })
-      await Page.loadEventFired()
-    })(),
-    timeout(30000, 'Navigation timeout: ' + url)
-  ])
-}
-
-async function fetchInPage(url, options = {}) {
-  if (!cdpClient) throw new Error('Browser not launched')
-  const { Runtime } = cdpClient
-
-  const optionsJson = JSON.stringify({
-    credentials: 'include',
-    ...options
-  })
-
-  const expression = `
-    (async () => {
-      const r = await fetch(${JSON.stringify(url)}, ${optionsJson})
-      const body = await r.text()
-      return JSON.stringify({ ok: r.ok, status: r.status, body })
-    })()
-  `
-
-  const result = await Runtime.evaluate({ expression, awaitPromise: true, returnByValue: true })
-  if (result.exceptionDetails) {
-    throw new Error('fetchInPage error: ' + result.exceptionDetails.text)
-  }
-  return JSON.parse(result.result.value)
-}
-
-async function closeBrowser() {
-  if (cdpClient) {
-    try { await cdpClient.close() } catch {}
-    cdpClient = null
-  }
-  if (chromeInstance) {
+  try {
+    cdpClient = await CDP({ port })
+    const { Page, Runtime } = cdpClient
+    await Promise.all([Page.enable(), Runtime.enable()])
+    await Page.addScriptToEvaluateOnNewDocument({ source: STEALTH_SCRIPT })
+  } catch (err) {
+    // Clean up chrome if CDP connect fails
     try { await chromeInstance.kill() } catch {}
-    chromeInstance = null
+    _usedPorts.delete(port)
+    throw err
   }
+
+  async function navigateTo(url) {
+    const { Page } = cdpClient
+    await Promise.race([
+      (async () => {
+        await Page.navigate({ url })
+        await Page.loadEventFired()
+      })(),
+      timeout(30000, 'Navigation timeout: ' + url)
+    ])
+  }
+
+  async function evaluateInPage(expression, opts) {
+    const { Runtime } = cdpClient
+    const options = Object.assign({ returnByValue: true }, opts || {})
+    const result = await Runtime.evaluate({ expression, ...options })
+    if (result.exceptionDetails) {
+      throw new Error('evaluateInPage error: ' + (result.exceptionDetails.text || JSON.stringify(result.exceptionDetails)))
+    }
+    return result.result.value
+  }
+
+  async function close() {
+    if (cdpClient) {
+      try { await cdpClient.close() } catch {}
+      cdpClient = null
+    }
+    if (chromeInstance) {
+      try { await chromeInstance.kill() } catch {}
+      chromeInstance = null
+    }
+    _usedPorts.delete(port)
+  }
+
+  return { navigateTo, evaluateInPage, close }
 }
 
-module.exports = { launchBrowser, navigateTo, fetchInPage, closeBrowser }
+module.exports = { createSession }

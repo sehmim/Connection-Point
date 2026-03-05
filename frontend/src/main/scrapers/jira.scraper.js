@@ -1,110 +1,113 @@
-const { launchBrowser, navigateTo, fetchInPage, closeBrowser } = require('./browser')
-const { getDb } = require('../db')
-const { v4: uuidv4 } = require('uuid')
+const { createSession } = require('./browser')
 
-function parseJiraBoardUrl(boardUrl) {
-  const url = new URL(boardUrl)
-  const baseUrl = url.origin
-  // Extract projectKey from path like /jira/software/projects/ALPHA/boards/12
-  const match = url.pathname.match(/\/projects\/([A-Z0-9]+)/)
-  const projectKey = match ? match[1] : null
-  return { baseUrl, projectKey }
-}
+// DOM scraper — navigates to the board URL in the user's logged-in Chrome session,
+// waits for cards to render, extracts raw text from the DOM.
+// No API calls — purely what the browser renders.
 
-function buildJql(projectKey) {
-  if (projectKey) {
-    return `assignee = currentUser() AND project = ${projectKey} AND updated >= -30d`
-  }
-  return `assignee = currentUser() AND updated >= -30d`
-}
+async function scrapeJiraBoardRaw(urls, profileDirName) {
+  const allItems = []
+  const session = await createSession(profileDirName)
 
-async function scrapeJiraBoard(boardUrl, profileDirName, workspaceId, profileId, integrationId) {
-  const { baseUrl, projectKey } = parseJiraBoardUrl(boardUrl)
+  try {
+    for (const boardUrl of urls) {
+      try {
+        await session.navigateTo(boardUrl)
 
-  await launchBrowser(profileDirName)
-  await navigateTo(baseUrl)
+        // Wait for board cards to appear — Jira SPA needs extra time after load event
+        await session.evaluateInPage(`
+          new Promise(resolve => {
+            const check = () => {
+              const cards = document.querySelectorAll(
+                '[data-testid="platform-board-kit.ui.card.card"], ' +
+                '[data-component-selector="board-card"], ' +
+                'div[class*="card-container"], ' +
+                'li[class*="issue-list-item"]'
+              )
+              if (cards.length > 0) return resolve()
+              setTimeout(check, 500)
+            }
+            setTimeout(resolve, 15000)
+            check()
+          })
+        `, { awaitPromise: true, timeout: 16000 })
 
-  // Verify we're authenticated
-  const myselfResp = await fetchInPage(`${baseUrl}/rest/api/3/myself`)
-  if (!myselfResp.ok) {
-    await closeBrowser()
-    return { count: 0, error: 'Not authenticated to Jira — please sign in via browser' }
-  }
+        const result = await session.evaluateInPage(`
+          (() => {
+            const items = []
 
-  const jql = encodeURIComponent(buildJql(projectKey))
-  const db = getDb()
-  let totalFetched = 0
-  let startAt = 0
-  const maxResults = 50
+            const cardSelectors = [
+              '[data-testid="platform-board-kit.ui.card.card"]',
+              '[data-component-selector="board-card"]',
+              '[class*="card--"][class*="issue"]',
+              '[class*="ghx-issue"]',
+            ]
 
-  while (true) {
-    const resp = await fetchInPage(
-      `${baseUrl}/rest/api/3/search?jql=${jql}&maxResults=${maxResults}&startAt=${startAt}&expand=changelog`
-    )
-    if (!resp.ok) break
+            for (const sel of cardSelectors) {
+              const cards = document.querySelectorAll(sel)
+              if (cards.length === 0) continue
+              cards.forEach(card => {
+                const keyEl = card.querySelector(
+                  '[data-testid*="issue-key"], [class*="issue-key"], [class*="card-key"], a[href*="/browse/"]'
+                )
+                const key = keyEl ? (keyEl.textContent.trim() || keyEl.getAttribute('href')?.match(/\\/browse\\/([A-Z]+-\\d+)/)?.[1] || '') : ''
 
-    const data = JSON.parse(resp.body)
-    const issues = data.issues || []
+                const summaryEl = card.querySelector(
+                  '[data-testid*="summary"], [class*="summary"], [class*="card-summary"], [class*="ghx-summary"]'
+                )
+                const summary = summaryEl ? summaryEl.textContent.trim() : card.textContent.slice(0, 120).trim()
 
-    const insertItem = db.prepare(`
-      INSERT OR REPLACE INTO jira_items
-        (id, workspace_id, profile_id, integration_id, board_url, title, status, priority, assignee, sprint, due_date, url, description, synced_at, raw_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `)
-    const insertActivity = db.prepare(`
-      INSERT OR REPLACE INTO jira_activity (id, jira_id, author, field, from_val, to_val, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `)
+                const statusEl = card.querySelector('[class*="status"], [class*="lozenge"]')
+                const status = statusEl ? statusEl.textContent.trim() : ''
 
-    db.transaction(() => {
-      for (const issue of issues) {
-        const fields = issue.fields || {}
-        const sprintField = fields.sprint || (fields.customfield_10020 && fields.customfield_10020[0])
+                const priorityEl = card.querySelector('img[class*="priority"], [class*="priority"] img, [data-testid*="priority"]')
+                const priority = priorityEl ? (priorityEl.getAttribute('alt') || priorityEl.textContent.trim()) : ''
 
-        insertItem.run(
-          issue.key,
-          workspaceId,
-          profileId,
-          integrationId,
-          boardUrl,
-          fields.summary || '',
-          fields.status?.name || '',
-          fields.priority?.name || '',
-          fields.assignee?.displayName || '',
-          sprintField?.name || null,
-          fields.duedate || null,
-          `${baseUrl}/browse/${issue.key}`,
-          fields.description ? JSON.stringify(fields.description) : null,
-          Date.now(),
-          JSON.stringify(issue)
-        )
+                const assigneeEl = card.querySelector('img[class*="avatar"], [class*="assignee"] img, [data-testid*="assignee"]')
+                const assignee = assigneeEl ? (assigneeEl.getAttribute('alt') || '') : ''
 
-        // changelog / activity
-        const histories = issue.changelog?.histories || []
-        for (const hist of histories) {
-          for (const item of (hist.items || [])) {
-            insertActivity.run(
-              uuidv4(),
-              issue.key,
-              hist.author?.displayName || '',
-              item.field || '',
-              item.fromString || null,
-              item.toString || null,
-              hist.created || null
-            )
-          }
-        }
+                items.push({ key, summary, status, priority, assignee, sourceUrl: window.location.href })
+              })
+              break
+            }
+
+            if (items.length === 0) {
+              const rows = document.querySelectorAll(
+                '[data-testid*="issue-row"], [class*="issue-list-item"], tr[class*="issuerow"], [class*="backlog-issue"]'
+              )
+              rows.forEach(row => {
+                const key = (row.querySelector('[class*="issue-key"], [data-testid*="issue-key"], a[href*="/browse/"]') || {}).textContent?.trim() || ''
+                const summary = (row.querySelector('[class*="summary"], [data-testid*="summary"]') || {}).textContent?.trim() || ''
+                const status = (row.querySelector('[class*="status"], [class*="lozenge"]') || {}).textContent?.trim() || ''
+                const priority = (row.querySelector('img[class*="priority"]') || {}).getAttribute?.('alt') || ''
+                const assignee = (row.querySelector('img[class*="avatar"]') || {}).getAttribute?.('alt') || ''
+                if (key || summary) items.push({ key, summary, status, priority, assignee, sourceUrl: window.location.href })
+              })
+            }
+
+            const columns = []
+            document.querySelectorAll(
+              '[data-testid*="column-header"], [class*="column-header"], [class*="ghx-column"] h2'
+            ).forEach(h => columns.push(h.textContent.trim()))
+
+            return JSON.stringify({ items, columns, pageTitle: document.title, url: window.location.href })
+          })()
+        `)
+
+        const parsed = JSON.parse(result)
+        console.log('[jira-scraper] Raw DOM result from', boardUrl, ':', parsed)
+        allItems.push({ boardUrl, ...parsed })
+
+      } catch (err) {
+        console.error('[jira-scraper] Error scraping', boardUrl, err.message)
+        allItems.push({ boardUrl, items: [], error: err.message })
       }
-    })()
+    }
 
-    totalFetched += issues.length
-
-    if (startAt + maxResults >= data.total) break
-    startAt += maxResults
+  } finally {
+    try { await session.close() } catch {}
   }
 
-  await closeBrowser()
-  return { count: totalFetched }
+  return { results: allItems, count: allItems.reduce((n, r) => n + (r.items || []).length, 0) }
 }
 
-module.exports = { scrapeJiraBoard }
+module.exports = { scrapeJiraBoardRaw }

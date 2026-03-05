@@ -1,8 +1,19 @@
 const { SCHEMA_SQL } = require('./schema')
 
 const MIGRATIONS = [
-  { version: 1, up: (db) => db.exec(SCHEMA_SQL) }
-  // Future: { version: 2, up: (db) => db.exec('ALTER TABLE ...') }
+  { version: 1, up: (db) => db.exec(SCHEMA_SQL) },
+  { version: 2, up: (db) => db.exec(`
+    CREATE TABLE IF NOT EXISTS github_repos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      url TEXT NOT NULL UNIQUE,
+      hostname TEXT NOT NULL,
+      label TEXT NOT NULL,
+      added_at INTEGER NOT NULL
+    );
+  `) },
+  { version: 3, up: (db) => db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_github_items_url ON github_items(url);
+  `) },
 ]
 
 function runMigrations(db) {

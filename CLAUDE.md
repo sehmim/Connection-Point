@@ -16,7 +16,7 @@ There are no tests, linting scripts, or build steps — this is a no-bundler Ele
 
 ## Architecture
 
-Connection Point is a local-first Electron desktop app that aggregates Jira, GitHub, calendar, and chat data across multiple client workspaces. The UI is complete and built against mock data; backend IPC wiring is Phase 2.
+Connection Point is a local-first Electron desktop app that aggregates Jira, GitHub, calendar, and chat data across multiple client workspaces. The UI is complete and built against mock data; backend IPC wiring is Phase 2. Strict Rule: Never use any 3rd party API like from google, jira or github. All data collection will be done via web scrapping using Claude Web browser skills and porting the tree into LLM to get classification.
 
 ### Process boundary
 

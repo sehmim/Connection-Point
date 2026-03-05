@@ -5,9 +5,11 @@ const { registerSyncIpc } = require('./ipc/sync.ipc')
 const { registerDataIpc } = require('./ipc/data.ipc')
 const { registerLlmIpc } = require('./ipc/llm.ipc')
 const { registerSettingsIpc } = require('./ipc/settings.ipc')
+const { registerGithubAuthIpc } = require('./ipc/github-auth.ipc')
 
 function init(win) {
   initDb()
+  registerGithubAuthIpc()
   registerProfilesIpc()
   registerSyncIpc(win)
   registerDataIpc()

@@ -11,16 +11,23 @@ window.renderDashboard = function() {
   if (window._lastDashView && window._lastDashView !== dashView) window._selectedItem = null
   window._lastDashView = dashView
 
-  // Fetch mock data if not yet loaded
-  const loadData = (window._appState.jiraItems && window._appState.githubItems)
-    ? Promise.resolve()
-    : Promise.all([
-        fetch('./mock/jira.json').then(r => r.json()),
-        fetch('./mock/github.json').then(r => r.json())
-      ]).then(([jira, github]) => {
-        window._appState.jiraItems = jira
-        window._appState.githubItems = github
-      })
+  // Log raw scraped data to console whenever the dashboard loads
+  const raw = window._appState.rawScrapedData
+  if (raw && Object.keys(raw).length > 0) {
+    console.group('[dashboard] Raw scraped data')
+    for (const [profilePath, services] of Object.entries(raw)) {
+      console.group('Profile: ' + profilePath)
+      for (const [service, result] of Object.entries(services)) {
+        if (result.error) {
+          console.warn(service + ' — error:', result.error)
+        } else {
+          console.log(service + ' — ' + result.count + ' item(s):', result.results || result)
+        }
+      }
+      console.groupEnd()
+    }
+    console.groupEnd()
+  }
 
   // Calendar view has its own data fetch path
   if (dashView === 'calendar') {
@@ -32,6 +39,53 @@ window.renderDashboard = function() {
     })
     return
   }
+
+  // GitHub tab: always load fresh from DB
+  if (dashView === 'github' && window.api && window.api.githubGetData) {
+    window.api.githubGetData().then(data => {
+      console.group('[GitHub] DB data')
+      const issues = data.items.filter(i => i.type === 'issue')
+      const prs = data.items.filter(i => i.type === 'pr')
+      if (issues.length) { console.log('Issues:'); console.table(issues.map(i => JSON.parse(i.raw_json))) }
+      if (prs.length) { console.log('Pull Requests:'); console.table(prs.map(i => JSON.parse(i.raw_json))) }
+      console.groupEnd()
+      // Map DB rows to the shape _renderGithubTable expects
+      window._appState.githubItems = data.items.map(row => {
+        const raw = JSON.parse(row.raw_json)
+        return {
+          id: row.id,
+          type: row.type,
+          title: row.title,
+          status: row.status || 'open',
+          repo: row.repo,
+          author: row.author,
+          url: row.url,
+          updatedAt: row.updated_at,
+          labels: raw.labels || [],
+          assignees: raw.assignees || [],
+          source: 'github',
+          profile: 'work',
+        }
+      })
+      window._renderDashboardUI(dashView)
+    }).catch(err => {
+      console.warn('[GitHub] Failed to load DB data:', err)
+      window._appState.githubItems = []
+      window._renderDashboardUI(dashView)
+    })
+    return
+  }
+
+  // All other tabs: load mock data
+  const loadData = (window._appState.jiraItems && window._appState.githubItems)
+    ? Promise.resolve()
+    : Promise.all([
+        fetch('./mock/jira.json').then(r => r.json()),
+        fetch('./mock/github.json').then(r => r.json())
+      ]).then(([jira, github]) => {
+        window._appState.jiraItems = jira
+        window._appState.githubItems = github
+      })
 
   loadData.then(() => {
     window._renderDashboardUI(dashView)
@@ -317,6 +371,50 @@ window._selectItem = function(uid) {
   if (newScroll) newScroll.scrollTop = savedScroll
 }
 
+// GitHub-specific select: open drawer with loading state, then fetch detail
+window._selectGithubItem = function(uid) {
+  const item = window._itemRegistry[uid]
+  if (!item) return
+
+  // Toggle off if same item clicked again
+  if (window._selectedItem && window._selectedItem._uid === uid) {
+    window._selectedItem = null
+    window._drawerWidth = null
+    const scroll = document.getElementById('dash-table-scroll')
+    const saved = scroll ? scroll.scrollTop : 0
+    window._reRenderCurrentView()
+    const ns = document.getElementById('dash-table-scroll')
+    if (ns) ns.scrollTop = saved
+    return
+  }
+
+  const prevType = window._selectedItem && window._selectedItem.source
+  if (prevType !== 'github') window._drawerWidth = null
+  window._selectedItem = { ...item, _loading: true }
+
+  const scroll = document.getElementById('dash-table-scroll')
+  const saved = scroll ? scroll.scrollTop : 0
+  window._reRenderCurrentView()
+  const ns = document.getElementById('dash-table-scroll')
+  if (ns) ns.scrollTop = saved
+
+  // Fetch real detail from the issue/PR page
+  window.api.githubScrapeDetail({ url: item.url, type: item.type })
+    .then(function(detail) {
+      window._selectedItem = { ...item, _detail: detail }
+      const s2 = document.getElementById('dash-table-scroll')
+      const sv2 = s2 ? s2.scrollTop : 0
+      window._reRenderCurrentView()
+      const ns2 = document.getElementById('dash-table-scroll')
+      if (ns2) ns2.scrollTop = sv2
+    })
+    .catch(function(err) {
+      console.warn('[drawer] detail fetch failed:', err)
+      window._selectedItem = { ...item, _detail: null, _detailError: err.message }
+      window._reRenderCurrentView()
+    })
+}
+
 window._closeItemDetail = function() {
   window._selectedItem = null
   window._drawerWidth = null
@@ -357,17 +455,19 @@ window._drawerMetaRow = function(label, value) {
 }
 
 window._drawerOpenLink = function(url, label) {
-  return `<a href="${url}" style="
+  const escaped = (url || '').replace(/'/g, "\\'")
+  return `<button onclick="window.api.openExternal('${escaped}')" style="
     display:flex; align-items:center; justify-content:center; gap:6px;
-    padding:8px 12px; border-radius:var(--radius);
+    width:100%; padding:8px 12px; border-radius:var(--radius);
     background:var(--bg-raised); border:1px solid var(--border);
     color:var(--text-secondary); font-size:13px; font-weight:500;
-    text-decoration:none; transition:border-color 0.15s, color 0.15s;
+    cursor:pointer; font-family:'IBM Plex Sans',sans-serif;
+    transition:border-color 0.15s, color 0.15s;
   " onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
      onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">
     <i data-lucide="external-link" style="width:13px; height:13px;"></i>
     ${label}
-  </a>`
+  </button>`
 }
 
 // ── Jira issue detail ────────────────────────────────────────────────────────
@@ -454,74 +554,97 @@ window._renderJiraDetail = function(item) {
 
 // ── GitHub Issue detail ──────────────────────────────────────────────────────
 window._renderGHIssueDetail = function(item) {
-  const comments = [
-    { user: 'maya-r',  avatar: 'M', body: 'Can confirm this is happening on main too. Seems related to the session handler changes in #182.', time: '3h ago' },
-    { user: 'james-t', avatar: 'J', body: 'I can take a look. Will need to check the auth middleware stack.', time: '1h ago' },
-  ]
-  const labels = item.status === 'Open' ? ['bug', 'needs-triage'] : ['resolved']
+  if (item._loading) {
+    return `
+      <div style="width:100%; display:flex; flex-direction:column; height:100%; overflow-y:auto;">
+        <div style="padding:16px;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
+            <div>
+              <span style="font-size:11px; font-weight:600; color:#a78bfa; background:rgba(139,92,246,0.1); padding:2px 7px; border-radius:4px;">Issue</span>
+              <div style="font-size:14px; font-weight:600; color:var(--text-primary); margin-top:6px;">${item.title}</div>
+            </div>
+            ${window._drawerCloseBtn()}
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; color:var(--text-muted); font-size:13px; margin-top:24px;">
+            <div style="width:14px;height:14px;border-radius:50%;border:2px solid var(--border);border-top-color:var(--accent);animation:spin 0.7s linear infinite;"></div>
+            Fetching details…
+          </div>
+        </div>
+      </div>`
+  }
+
+  const d = item._detail || {}
+  const labels = (d.labels && d.labels.length) ? d.labels : (item.labels || [])
+  const assignees = (d.assignees && d.assignees.length) ? d.assignees : (item.assignees || [])
+  const comments = d.comments || []
+  const author = d.author || item.author || '—'
+  const state = d.state || item.status || '—'
 
   return `
     <div style="width:100%; min-width:0; display:flex; flex-direction:column; height:100%; overflow-y:auto;">
       <div style="padding:16px 16px 0;">
 
-        <!-- Header -->
         <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:8px; margin-bottom:12px;">
           <div style="flex:1; min-width:0;">
-            <div style="margin-bottom:5px;">
+            <div style="margin-bottom:5px; display:flex; align-items:center; gap:6px;">
               <span style="font-size:11px; font-weight:600; color:#a78bfa; background:rgba(139,92,246,0.1); padding:2px 7px; border-radius:4px;">Issue</span>
+              ${window._statusBadge(state)}
             </div>
             <div style="font-size:14px; font-weight:600; color:var(--text-primary); line-height:1.4; margin-bottom:3px;">${item.title}</div>
-            <div style="font-size:12px; color:var(--text-muted); font-family:monospace;">${item.repo}#${item.id}</div>
+            <div style="font-size:12px; color:var(--text-muted); font-family:monospace;">${item.repo}#${item.number || item.id}</div>
           </div>
           ${window._drawerCloseBtn()}
         </div>
 
         <div style="border-top:1px solid var(--border-subtle); margin-bottom:14px;"></div>
 
-        <!-- Metadata -->
         <div style="display:flex; flex-direction:column; gap:9px; margin-bottom:16px;">
-          ${window._drawerMetaRow('Status',  window._statusBadge(item.status))}
-          ${window._drawerMetaRow('Repo',    `<span style="font-family:monospace;font-size:12px;">${item.repo}</span>`)}
-          ${window._drawerMetaRow('Author',  item.author || '—')}
-          ${window._drawerMetaRow('Updated', item.updatedAt || '—')}
-          ${window._drawerMetaRow('Labels',  labels.map(l => `<span style="font-size:11px; padding:1px 7px; border-radius:10px; background:rgba(239,68,68,0.12); color:#f87171; margin-right:4px;">${l}</span>`).join(''))}
+          ${window._drawerMetaRow('Repo',      `<span style="font-family:monospace;font-size:12px;">${item.repo}</span>`)}
+          ${window._drawerMetaRow('Author',    author)}
+          ${window._drawerMetaRow('Updated',   item.updatedAt ? window.timeAgo(item.updatedAt) : '—')}
+          ${assignees.length ? window._drawerMetaRow('Assignees', assignees.join(', ')) : ''}
+          ${labels.length ? window._drawerMetaRow('Labels', labels.map(l =>
+            `<span style="font-size:11px;padding:1px 7px;border-radius:10px;background:rgba(99,102,241,0.12);color:var(--accent);margin-right:4px;">${l}</span>`
+          ).join('')) : ''}
         </div>
 
-        <div style="border-top:1px solid var(--border-subtle); margin-bottom:14px;"></div>
-
-        <!-- Body -->
-        <div style="margin-bottom:16px;">
-          <div style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">Description</div>
-          <div style="font-size:13px; color:var(--text-secondary); line-height:1.6; background:var(--bg-raised); border-radius:var(--radius); padding:10px 12px;">
-            Getting a 500 error when calling <code style="background:var(--bg-hover);padding:1px 5px;border-radius:3px;font-size:12px;">POST /auth/reset-password</code> with a valid token. The error occurs inconsistently — roughly 30% of requests. Stack trace points to the session cleanup handler.
+        ${d.body ? `
+          <div style="border-top:1px solid var(--border-subtle); margin-bottom:14px;"></div>
+          <div style="margin-bottom:16px;">
+            <div style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">Description</div>
+            <div style="font-size:13px; color:var(--text-secondary); line-height:1.6; background:var(--bg-raised); border-radius:var(--radius); padding:10px 12px; max-height:200px; overflow-y:auto;">
+              ${d.body}
+            </div>
           </div>
-        </div>
+        ` : ''}
 
-        <div style="border-top:1px solid var(--border-subtle); margin-bottom:14px;"></div>
-
-        <!-- Comments -->
-        <div style="margin-bottom:16px;">
-          <div style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Comments · ${comments.length}</div>
-          <div style="display:flex; flex-direction:column; gap:12px;">
-            ${comments.map(c => `
-              <div style="display:flex; gap:9px;">
-                <div style="
-                  width:26px; height:26px; border-radius:50%; flex-shrink:0;
-                  background:var(--bg-hover); border:1px solid var(--border);
-                  display:flex; align-items:center; justify-content:center;
-                  font-size:11px; font-weight:600; color:var(--text-secondary);
-                ">${c.avatar}</div>
-                <div style="flex:1; min-width:0;">
-                  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
-                    <span style="font-size:12px; font-weight:600; color:var(--text-primary);">${c.user}</span>
-                    <span style="font-size:11px; color:var(--text-muted);">${c.time}</span>
+        ${comments.length ? `
+          <div style="border-top:1px solid var(--border-subtle); margin-bottom:14px;"></div>
+          <div style="margin-bottom:16px;">
+            <div style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Comments · ${comments.length}</div>
+            <div style="display:flex; flex-direction:column; gap:10px;">
+              ${comments.map(c => `
+                <div style="display:flex; gap:9px;">
+                  <div style="
+                    width:26px; height:26px; border-radius:50%; flex-shrink:0;
+                    background:var(--bg-hover); border:1px solid var(--border);
+                    display:flex; align-items:center; justify-content:center;
+                    font-size:11px; font-weight:600; color:var(--text-secondary);
+                  ">${(c.user || '?')[0].toUpperCase()}</div>
+                  <div style="flex:1; min-width:0;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+                      <span style="font-size:12px; font-weight:600; color:var(--text-primary);">${c.user || '—'}</span>
+                      <span style="font-size:11px; color:var(--text-muted);">${c.date ? window.timeAgo(c.date) : ''}</span>
+                    </div>
+                    <div style="font-size:12px; color:var(--text-secondary); line-height:1.5; background:var(--bg-raised); border-radius:var(--radius); padding:8px 10px;">${c.body || ''}</div>
                   </div>
-                  <div style="font-size:12px; color:var(--text-secondary); line-height:1.5; background:var(--bg-raised); border-radius:var(--radius); padding:8px 10px;">${c.body}</div>
                 </div>
-              </div>
-            `).join('')}
+              `).join('')}
+            </div>
           </div>
-        </div>
+        ` : ''}
+
+        ${item._detailError ? `<div style="font-size:12px;color:var(--danger);margin-bottom:12px;">Could not load details: ${item._detailError}</div>` : ''}
 
         <div style="border-top:1px solid var(--border-subtle); margin-bottom:14px;"></div>
         ${window._drawerOpenLink(item.url, 'Open in GitHub')}
@@ -533,219 +656,107 @@ window._renderGHIssueDetail = function(item) {
 
 // ── GitHub PR detail — split screen ─────────────────────────────────────────
 window._renderPRDetail = function(item) {
-  const mockFiles = [
-    { path: 'src/auth/session.ts',       additions: 24, deletions: 8,  selected: true },
-    { path: 'src/auth/middleware.ts',     additions: 12, deletions: 3,  selected: false },
-    { path: 'src/api/routes/auth.ts',     additions: 6,  deletions: 1,  selected: false },
-    { path: 'tests/auth.test.ts',         additions: 41, deletions: 0,  selected: false },
-    { path: 'package.json',               additions: 2,  deletions: 2,  selected: false },
-  ]
-
-  const mockDiff = [
-    { type: 'header',  text: '@ src/auth/session.ts' },
-    { type: 'context', text: '  import { Redis } from "ioredis"', ln: 1 },
-    { type: 'context', text: '  import { SessionConfig } from "./types"', ln: 2 },
-    { type: 'context', text: '', ln: 3 },
-    { type: 'del',     text: '- export async function destroySession(id: string) {', ln: 4 },
-    { type: 'del',     text: '-   await redis.del(id)', ln: 5 },
-    { type: 'del',     text: '- }', ln: 6 },
-    { type: 'add',     text: '+ export async function destroySession(', ln: null },
-    { type: 'add',     text: '+   id: string,', ln: null },
-    { type: 'add',     text: '+   opts: { force?: boolean } = {}', ln: null },
-    { type: 'add',     text: '+ ) {', ln: null },
-    { type: 'add',     text: '+   const key = `session:${id}`', ln: null },
-    { type: 'add',     text: '+   if (opts.force || await redis.exists(key)) {', ln: null },
-    { type: 'add',     text: '+     await redis.del(key)', ln: null },
-    { type: 'add',     text: '+     await redis.publish("session:expired", id)', ln: null },
-    { type: 'add',     text: '+   }', ln: null },
-    { type: 'add',     text: '+ }', ln: null },
-    { type: 'context', text: '', ln: 14 },
-    { type: 'context', text: '  export async function refreshSession(id: string) {', ln: 15 },
-    { type: 'context', text: '    const session = await redis.get(`session:${id}`)', ln: 16 },
-    { type: 'del',     text: '-   if (!session) throw new Error("Not found")', ln: 17 },
-    { type: 'add',     text: '+   if (!session) return null', ln: null },
-    { type: 'context', text: '    return JSON.parse(session)', ln: 18 },
-    { type: 'context', text: '  }', ln: 19 },
-  ]
-
-  const mockReviews = [
-    { user: 'sarah-k', avatar: 'S', state: 'approved',         time: '1h ago' },
-    { user: 'james-t', avatar: 'J', state: 'changes-requested', time: '3h ago' },
-  ]
-
-  const reviewStateStyle = {
-    'approved':           { color: 'var(--success)', bg: 'var(--success-muted)', icon: 'check-circle', label: 'Approved' },
-    'changes-requested':  { color: 'var(--danger)',  bg: 'var(--danger-muted)',  icon: 'x-circle',     label: 'Changes requested' },
+  if (item._loading) {
+    return `
+      <div style="width:100%; display:flex; flex-direction:column; height:100%; overflow-y:auto;">
+        <div style="padding:16px;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
+            <div>
+              <span style="font-size:11px; font-weight:600; color:#818cf8; background:rgba(99,102,241,0.12); padding:2px 7px; border-radius:4px;">PR</span>
+              <div style="font-size:14px; font-weight:600; color:var(--text-primary); margin-top:6px;">${item.title}</div>
+            </div>
+            ${window._drawerCloseBtn()}
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; color:var(--text-muted); font-size:13px; margin-top:24px;">
+            <div style="width:14px;height:14px;border-radius:50%;border:2px solid var(--border);border-top-color:var(--accent);animation:spin 0.7s linear infinite;"></div>
+            Fetching details…
+          </div>
+        </div>
+      </div>`
   }
 
-  const totalAdd = mockFiles.reduce((s, f) => s + f.additions, 0)
-  const totalDel = mockFiles.reduce((s, f) => s + f.deletions, 0)
+  const d = item._detail || {}
+  const labels = (d.labels && d.labels.length) ? d.labels : (item.labels || [])
+  const assignees = (d.assignees && d.assignees.length) ? d.assignees : (item.assignees || [])
+  const reviewers = d.reviewers || []
+  const comments = d.comments || []
+  const author = d.author || item.author || '—'
+  const state = d.state || item.status || '—'
 
-  // Left pane: metadata + file list + reviews
-  const leftPane = `
-    <div style="
-      width:300px; min-width:300px; flex-shrink:0;
-      border-right:1px solid var(--border);
-      display:flex; flex-direction:column; height:100%; overflow-y:auto;
-    ">
-      <div style="padding:14px 14px 0;">
+  return `
+    <div style="width:100%; min-width:0; display:flex; flex-direction:column; height:100%; overflow-y:auto;">
+      <div style="padding:16px 16px 0;">
 
-        <!-- Header -->
-        <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:6px; margin-bottom:10px;">
+        <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:8px; margin-bottom:12px;">
           <div style="flex:1; min-width:0;">
             <div style="margin-bottom:5px; display:flex; align-items:center; gap:6px;">
               <span style="font-size:11px; font-weight:600; color:#818cf8; background:rgba(99,102,241,0.12); padding:2px 7px; border-radius:4px;">PR</span>
-              ${window._statusBadge(item.status)}
+              ${window._statusBadge(state)}
             </div>
-            <div style="font-size:13px; font-weight:600; color:var(--text-primary); line-height:1.4; margin-bottom:2px;">${item.title}</div>
-            <div style="font-size:11px; color:var(--text-muted); font-family:monospace;">${item.repo}#${item.id}</div>
+            <div style="font-size:14px; font-weight:600; color:var(--text-primary); line-height:1.4; margin-bottom:3px;">${item.title}</div>
+            <div style="font-size:12px; color:var(--text-muted); font-family:monospace;">${item.repo}#${item.number || item.id}</div>
           </div>
           ${window._drawerCloseBtn()}
         </div>
 
-        <div style="border-top:1px solid var(--border-subtle); margin-bottom:12px;"></div>
+        <div style="border-top:1px solid var(--border-subtle); margin-bottom:14px;"></div>
 
-        <!-- Meta -->
-        <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:14px;">
-          ${window._drawerMetaRow('Author',  item.author || '—')}
-          ${window._drawerMetaRow('Repo',    `<span style="font-family:monospace;font-size:11px;">${item.repo}</span>`)}
-          ${window._drawerMetaRow('Updated', item.updatedAt || '—')}
+        <div style="display:flex; flex-direction:column; gap:9px; margin-bottom:16px;">
+          ${window._drawerMetaRow('Repo',      `<span style="font-family:monospace;font-size:12px;">${item.repo}</span>`)}
+          ${window._drawerMetaRow('Author',    author)}
+          ${window._drawerMetaRow('Updated',   item.updatedAt ? window.timeAgo(item.updatedAt) : '—')}
+          ${assignees.length ? window._drawerMetaRow('Assignees', assignees.join(', ')) : ''}
+          ${reviewers.length ? window._drawerMetaRow('Reviewers', reviewers.join(', ')) : ''}
+          ${labels.length ? window._drawerMetaRow('Labels', labels.map(l =>
+            `<span style="font-size:11px;padding:1px 7px;border-radius:10px;background:rgba(99,102,241,0.12);color:var(--accent);margin-right:4px;">${l}</span>`
+          ).join('')) : ''}
+          ${d.filesChanged ? window._drawerMetaRow('Files', d.filesChanged) : ''}
         </div>
 
-        <div style="border-top:1px solid var(--border-subtle); margin-bottom:12px;"></div>
-
-        <!-- Stats -->
-        <div style="display:flex; gap:10px; margin-bottom:14px;">
-          <div style="display:flex; align-items:center; gap:5px;">
-            <i data-lucide="file-diff" style="width:13px;height:13px;color:var(--text-muted);"></i>
-            <span style="font-size:12px; color:var(--text-muted);">${mockFiles.length} files</span>
+        ${d.body ? `
+          <div style="border-top:1px solid var(--border-subtle); margin-bottom:14px;"></div>
+          <div style="margin-bottom:16px;">
+            <div style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">Description</div>
+            <div style="font-size:13px; color:var(--text-secondary); line-height:1.6; background:var(--bg-raised); border-radius:var(--radius); padding:10px 12px; max-height:200px; overflow-y:auto;">
+              ${d.body}
+            </div>
           </div>
-          <span style="font-size:12px; color:var(--success);">+${totalAdd}</span>
-          <span style="font-size:12px; color:var(--danger);">−${totalDel}</span>
-        </div>
+        ` : ''}
 
-        <!-- Reviews -->
-        <div style="margin-bottom:14px;">
-          <div style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">Reviews</div>
-          <div style="display:flex; flex-direction:column; gap:6px;">
-            ${mockReviews.map(r => {
-              const st = reviewStateStyle[r.state]
-              return `<div style="display:flex; align-items:center; gap:8px; padding:6px 8px; background:${st.bg}; border-radius:var(--radius);">
-                <div style="width:22px;height:22px;border-radius:50%;background:var(--bg-hover);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:var(--text-secondary);">${r.avatar}</div>
-                <div style="flex:1;min-width:0;">
-                  <div style="font-size:12px;font-weight:500;color:var(--text-primary);">${r.user}</div>
-                  <div style="font-size:11px;color:${st.color};">${st.label}</div>
+        ${comments.length ? `
+          <div style="border-top:1px solid var(--border-subtle); margin-bottom:14px;"></div>
+          <div style="margin-bottom:16px;">
+            <div style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Comments · ${comments.length}</div>
+            <div style="display:flex; flex-direction:column; gap:10px;">
+              ${comments.map(c => `
+                <div style="display:flex; gap:9px;">
+                  <div style="
+                    width:26px; height:26px; border-radius:50%; flex-shrink:0;
+                    background:var(--bg-hover); border:1px solid var(--border);
+                    display:flex; align-items:center; justify-content:center;
+                    font-size:11px; font-weight:600; color:var(--text-secondary);
+                  ">${(c.user || '?')[0].toUpperCase()}</div>
+                  <div style="flex:1; min-width:0;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+                      <span style="font-size:12px; font-weight:600; color:var(--text-primary);">${c.user || '—'}</span>
+                      <span style="font-size:11px; color:var(--text-muted);">${c.date ? window.timeAgo(c.date) : ''}</span>
+                    </div>
+                    <div style="font-size:12px; color:var(--text-secondary); line-height:1.5; background:var(--bg-raised); border-radius:var(--radius); padding:8px 10px;">${c.body || ''}</div>
+                  </div>
                 </div>
-                <i data-lucide="${st.icon}" style="width:13px;height:13px;color:${st.color};flex-shrink:0;"></i>
-              </div>`
-            }).join('')}
+              `).join('')}
+            </div>
           </div>
-        </div>
+        ` : ''}
 
-        <div style="border-top:1px solid var(--border-subtle); margin-bottom:12px;"></div>
+        ${item._detailError ? `<div style="font-size:12px;color:var(--danger);margin-bottom:12px;">Could not load details: ${item._detailError}</div>` : ''}
 
-        <!-- File list -->
-        <div style="margin-bottom:14px;">
-          <div style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">Changed Files</div>
-          <div style="display:flex; flex-direction:column; gap:2px;">
-            ${mockFiles.map((f, idx) => `
-              <div onclick="window._prSelectFile(${idx})" style="
-                display:flex; align-items:center; gap:6px;
-                padding:5px 6px; border-radius:var(--radius); cursor:pointer;
-                background:${f.selected ? 'var(--accent-muted)' : 'transparent'};
-                border-left:2px solid ${f.selected ? 'var(--accent)' : 'transparent'};
-                transition:background 0.1s;
-              " onmouseover="if(!${f.selected})this.style.background='var(--bg-hover)'" onmouseout="if(!${f.selected})this.style.background='transparent'">
-                <i data-lucide="file-code" style="width:12px;height:12px;color:var(--text-muted);flex-shrink:0;"></i>
-                <span style="font-size:11px; color:var(--text-secondary); font-family:monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;">${f.path.split('/').pop()}</span>
-                <span style="font-size:10px; color:var(--success); flex-shrink:0;">+${f.additions}</span>
-                <span style="font-size:10px; color:var(--danger); flex-shrink:0;">−${f.deletions}</span>
-              </div>
-            `).join('')}
-          </div>
-        </div>
-
-        <div style="border-top:1px solid var(--border-subtle); margin-bottom:12px;"></div>
+        <div style="border-top:1px solid var(--border-subtle); margin-bottom:14px;"></div>
         ${window._drawerOpenLink(item.url, 'Open in GitHub')}
-        <div style="height:14px;"></div>
+        <div style="height:16px;"></div>
       </div>
     </div>
   `
-
-  // Right pane: diff viewer
-  const diffBg  = { add: 'rgba(16,185,129,0.08)', del: 'rgba(239,68,68,0.08)', header: 'rgba(99,102,241,0.08)', context: 'transparent' }
-  const diffCol  = { add: 'var(--success)', del: 'var(--danger)', header: 'var(--accent)', context: 'var(--text-secondary)' }
-
-  const rightPane = `
-    <div style="flex:1; min-width:0; display:flex; flex-direction:column; height:100%; overflow:hidden;">
-
-      <!-- Diff toolbar -->
-      <div style="
-        padding:8px 14px; background:var(--bg-raised);
-        border-bottom:1px solid var(--border); flex-shrink:0;
-        display:flex; align-items:center; gap:8px;
-      ">
-        <i data-lucide="file-code" style="width:13px;height:13px;color:var(--text-muted);"></i>
-        <span style="font-size:12px; color:var(--text-secondary); font-family:monospace; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${mockFiles[0].path}</span>
-        <span style="font-size:11px; color:var(--success);">+${mockFiles[0].additions}</span>
-        <span style="font-size:11px; color:var(--danger);">−${mockFiles[0].deletions}</span>
-      </div>
-
-      <!-- Diff lines -->
-      <div style="flex:1; overflow-y:auto; font-family:monospace; font-size:12px;">
-        ${mockDiff.map((line, i) => `
-          <div style="
-            display:flex; align-items:stretch;
-            background:${diffBg[line.type]};
-            border-bottom:1px solid rgba(255,255,255,0.02);
-            min-height:20px;
-          ">
-            <div style="
-              width:32px; flex-shrink:0; padding:2px 6px;
-              font-size:11px; color:var(--text-muted);
-              border-right:1px solid var(--border-subtle);
-              text-align:right; user-select:none;
-            ">${line.ln || ''}</div>
-            <div style="
-              flex:1; padding:2px 10px; white-space:pre;
-              color:${diffCol[line.type]}; overflow-x:auto;
-            ">${line.text}</div>
-            ${line.type !== 'header' ? `
-              <div class="add-comment-btn" style="
-                width:22px; flex-shrink:0; padding:2px 4px;
-                display:flex; align-items:center; justify-content:center;
-                opacity:0; transition:opacity 0.1s; cursor:pointer;
-              " onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0'"
-                 title="Add comment">
-                <i data-lucide="message-circle" style="width:12px;height:12px;color:var(--accent);"></i>
-              </div>
-            ` : '<div style="width:22px;"></div>'}
-          </div>
-        `).join('')}
-
-        <!-- Inline comment box mock -->
-        <div style="margin:10px 12px; background:var(--bg-raised); border:1px solid var(--border); border-radius:var(--radius);">
-          <div style="padding:8px 10px; border-bottom:1px solid var(--border-subtle); display:flex; align-items:center; gap:8px;">
-            <div style="width:22px;height:22px;border-radius:50%;background:var(--accent-muted);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:var(--accent);">Y</div>
-            <span style="font-size:12px; color:var(--text-muted);">Leave a comment on line 8…</span>
-          </div>
-          <div style="padding:6px 10px 8px; display:flex; justify-content:flex-end; gap:6px;">
-            <button style="padding:4px 10px; background:transparent; border:1px solid var(--border); border-radius:var(--radius); font-size:12px; color:var(--text-muted); cursor:pointer; font-family:'IBM Plex Sans',sans-serif;">Cancel</button>
-            <button style="padding:4px 10px; background:var(--accent); border:none; border-radius:var(--radius); font-size:12px; font-weight:600; color:#fff; cursor:pointer; font-family:'IBM Plex Sans',sans-serif;">Comment</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  `
-
-  return leftPane + rightPane
-}
-
-window._prSelectFile = function(idx) {
-  // Re-render with new selected file — for now just re-render the whole panel
-  // In Phase 2 this would swap the diff content
-  const dashView = (window._appState && window._appState.dashboardView) || 'all'
-  window._renderDashboardUI(dashView)
 }
 
 window._statusBadge = function(status) {
@@ -1012,74 +1023,76 @@ window._renderProfileNavbar = function(countsSource) {
       .reduce((sum, arr) => sum + arr.filter(i => i.profile === profileId).length, 0)
   }
 
-  return `
-    <div style="
-      display:flex; align-items:center; gap:6px;
-      padding:10px 20px; background:var(--bg-surface);
-      border-bottom:1px solid var(--border);
-      flex-shrink:0; overflow-x:auto;
-    ">
-      <!-- Chrome icon -->
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;margin-right:2px;">
-        <circle cx="8" cy="8" r="3" fill="#4285F4"/>
-        <path d="M8 5h6.5" stroke="#EA4335" stroke-width="2.5" stroke-linecap="round"/>
-        <path d="M8 5 L1.75 11" stroke="#FBBC04" stroke-width="2.5" stroke-linecap="round"/>
-        <path d="M14.5 8 Q13 13 8 11 Q3 9 1.75 11" stroke="#34A853" stroke-width="2.5" stroke-linecap="round" fill="none"/>
-      </svg>
+  return ``
 
-      <button onclick="window._briefingProfileClick('all')" style="
-        display:flex; align-items:center; gap:5px;
-        padding:4px 10px; border-radius:12px; cursor:pointer;
-        font-size:12px; font-weight:600;
-        font-family:'IBM Plex Sans',sans-serif;
-        border:1px solid ${activeProfile === 'all' ? 'var(--accent)' : 'var(--border)'};
-        background:${activeProfile === 'all' ? 'var(--accent-muted)' : 'transparent'};
-        color:${activeProfile === 'all' ? 'var(--accent)' : 'var(--text-secondary)'};
-        transition:all 0.1s; white-space:nowrap;
-      ">
-        <i data-lucide="layers" style="width:11px;height:11px;"></i>
-        All Browsers
-      </button>
+  // return `
+  //   <div style="
+  //     display:flex; align-items:center; gap:6px;
+  //     padding:10px 20px; background:var(--bg-surface);
+  //     border-bottom:1px solid var(--border);
+  //     flex-shrink:0; overflow-x:auto;
+  //   ">
+  //     <!-- Chrome icon -->
+  //     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;margin-right:2px;">
+  //       <circle cx="8" cy="8" r="3" fill="#4285F4"/>
+  //       <path d="M8 5h6.5" stroke="#EA4335" stroke-width="2.5" stroke-linecap="round"/>
+  //       <path d="M8 5 L1.75 11" stroke="#FBBC04" stroke-width="2.5" stroke-linecap="round"/>
+  //       <path d="M14.5 8 Q13 13 8 11 Q3 9 1.75 11" stroke="#34A853" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+  //     </svg>
 
-      <div style="width:1px;height:16px;background:var(--border-subtle);flex-shrink:0;"></div>
+  //     <button onclick="window._briefingProfileClick('all')" style="
+  //       display:flex; align-items:center; gap:5px;
+  //       padding:4px 10px; border-radius:12px; cursor:pointer;
+  //       font-size:12px; font-weight:600;
+  //       font-family:'IBM Plex Sans',sans-serif;
+  //       border:1px solid ${activeProfile === 'all' ? 'var(--accent)' : 'var(--border)'};
+  //       background:${activeProfile === 'all' ? 'var(--accent-muted)' : 'transparent'};
+  //       color:${activeProfile === 'all' ? 'var(--accent)' : 'var(--text-secondary)'};
+  //       transition:all 0.1s; white-space:nowrap;
+  //     ">
+  //       <i data-lucide="layers" style="width:11px;height:11px;"></i>
+  //       All Browsers
+  //     </button>
 
-      ${_BRIEFING_PROFILES.map(p => {
-        const isActive = activeProfile === p.id
-        const itemCounts = getCount(p.id)
-        return `
-          <button onclick="window._briefingProfileClick('${p.id}')" style="
-            display:flex; align-items:center; gap:6px;
-            padding:4px 10px; border-radius:12px; cursor:pointer;
-            font-size:12px; font-weight:600;
-            font-family:'IBM Plex Sans',sans-serif;
-            border:1px solid ${isActive ? p.color : 'var(--border)'};
-            background:${isActive ? p.color + '22' : 'transparent'};
-            color:${isActive ? p.color : 'var(--text-secondary)'};
-            transition:all 0.1s; white-space:nowrap;
-          ">
-            <span style="
-              width:18px; height:18px; border-radius:50%; flex-shrink:0;
-              background:${p.color}; color:#fff;
-              display:inline-flex; align-items:center; justify-content:center;
-              font-size:9px; font-weight:700;
-            ">${p.avatar}</span>
-            ${p.name}
-            <span style="
-              font-size:10px; font-weight:700;
-              background:${isActive ? p.color + '30' : 'var(--bg-hover)'};
-              color:${isActive ? p.color : 'var(--text-muted)'};
-              border-radius:8px; padding:0 5px; min-width:16px; text-align:center;
-            ">${itemCounts}</span>
-          </button>
-        `
-      }).join('')}
+  //     <div style="width:1px;height:16px;background:var(--border-subtle);flex-shrink:0;"></div>
 
-      <div style="flex:1;"></div>
-      <span style="font-size:11px;color:var(--text-muted);white-space:nowrap;flex-shrink:0;">
-        ${activeProfile === 'all' ? 'Showing all profiles' : `Filtered to ${_BRIEFING_PROFILES.find(p => p.id === activeProfile)?.email || ''}`}
-      </span>
-    </div>
-  `
+  //     ${_BRIEFING_PROFILES.map(p => {
+  //       const isActive = activeProfile === p.id
+  //       const itemCounts = getCount(p.id)
+  //       return `
+  //         <button onclick="window._briefingProfileClick('${p.id}')" style="
+  //           display:flex; align-items:center; gap:6px;
+  //           padding:4px 10px; border-radius:12px; cursor:pointer;
+  //           font-size:12px; font-weight:600;
+  //           font-family:'IBM Plex Sans',sans-serif;
+  //           border:1px solid ${isActive ? p.color : 'var(--border)'};
+  //           background:${isActive ? p.color + '22' : 'transparent'};
+  //           color:${isActive ? p.color : 'var(--text-secondary)'};
+  //           transition:all 0.1s; white-space:nowrap;
+  //         ">
+  //           <span style="
+  //             width:18px; height:18px; border-radius:50%; flex-shrink:0;
+  //             background:${p.color}; color:#fff;
+  //             display:inline-flex; align-items:center; justify-content:center;
+  //             font-size:9px; font-weight:700;
+  //           ">${p.avatar}</span>
+  //           ${p.name}
+  //           <span style="
+  //             font-size:10px; font-weight:700;
+  //             background:${isActive ? p.color + '30' : 'var(--bg-hover)'};
+  //             color:${isActive ? p.color : 'var(--text-muted)'};
+  //             border-radius:8px; padding:0 5px; min-width:16px; text-align:center;
+  //           ">${itemCounts}</span>
+  //         </button>
+  //       `
+  //     }).join('')}
+
+  //     <div style="flex:1;"></div>
+  //     <span style="font-size:11px;color:var(--text-muted);white-space:nowrap;flex-shrink:0;">
+  //       ${activeProfile === 'all' ? 'Showing all profiles' : `Filtered to ${_BRIEFING_PROFILES.find(p => p.id === activeProfile)?.email || ''}`}
+  //     </span>
+  //   </div>
+  // `
 }
 
 window._renderMorningBriefing = function() {
@@ -1791,10 +1804,9 @@ window._calFilter = function(key, value) {
 // ─── GitHub table ─────────────────────────────────────────────────────────────
 
 window._renderGithubTable = function(items) {
-  items.forEach(item => {
-    const uid = 'gh-' + item.id
-    window._itemRegistry[uid] = { ...item, _uid: uid, source: 'github' }
-  })
+  if (items.length === 0) {
+    return `<div style="display:flex; align-items:center; justify-content:center; height:200px; color:var(--text-muted); font-size:14px;">No GitHub items found. Connect a repo in onboarding and sync.</div>`
+  }
   return `
     <table style="width:100%; border-collapse:collapse; min-width:600px;">
       <thead>
@@ -1805,18 +1817,21 @@ window._renderGithubTable = function(items) {
           <th style="${thStyle}">Status</th>
           <th style="${thStyle}">Author</th>
           <th style="${thStyle}">Updated</th>
+          <th style="${thStyle} width:40px;"></th>
         </tr>
       </thead>
       <tbody>
         ${items.map(item => {
           const uid = 'gh-' + item.id
+          window._itemRegistry[uid] = { ...item, _uid: uid, source: 'github' }
           const isSelected = window._selectedItem && window._selectedItem._uid === uid
+          const escapedUrl = (item.url || '').replace(/'/g, "\\'")
           return `
-          <tr data-uid="${uid}" data-selected="${isSelected ? '1' : '0'}"
+          <tr class="gh-row" data-uid="${uid}" data-selected="${isSelected ? '1' : '0'}"
             style="cursor:pointer; transition:background 0.1s; background:${isSelected ? 'var(--accent-muted)' : 'transparent'};"
-            onmouseover="if(this.getAttribute('data-selected')==='0') this.style.background='var(--bg-hover)'"
-            onmouseout="if(this.getAttribute('data-selected')==='0') this.style.background='transparent'"
-            onclick="window._selectItem('${uid}')"
+            onmouseover="this.style.background='${isSelected ? 'var(--accent-muted)' : 'var(--bg-hover)'}'; this.querySelector('.gh-open-btn').style.opacity='1'"
+            onmouseout="this.style.background='${isSelected ? 'var(--accent-muted)' : 'transparent'}'; this.querySelector('.gh-open-btn').style.opacity='0'"
+            onclick="window._selectGithubItem('${uid}')"
           >
             <td style="${tdStyle} color:var(--text-muted); white-space:nowrap; font-size:12px;">${item.repo || '—'}</td>
             <td style="${tdStyle} max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${item.title}</td>
@@ -1824,6 +1839,24 @@ window._renderGithubTable = function(items) {
             <td style="${tdStyle}">${window._statusBadge(item.status)}</td>
             <td style="${tdStyle} color:var(--text-secondary);">${item.author || '—'}</td>
             <td style="${tdStyle} color:var(--text-muted); white-space:nowrap;">${window.timeAgo(item.updatedAt)}</td>
+            <td style="${tdStyle} text-align:center; padding:0 8px;">
+              <button
+                class="gh-open-btn"
+                onclick="event.stopPropagation(); window.api.openExternal('${escapedUrl}')"
+                title="Open in browser"
+                style="
+                  opacity:0; transition:opacity 0.15s;
+                  background:none; border:1px solid var(--border);
+                  border-radius:var(--radius-sm); padding:3px 5px;
+                  cursor:pointer; color:var(--text-muted);
+                  display:inline-flex; align-items:center;
+                "
+                onmouseover="this.style.borderColor='var(--accent)'; this.style.color='var(--accent)'"
+                onmouseout="this.style.borderColor='var(--border)'; this.style.color='var(--text-muted)'"
+              >
+                <i data-lucide="external-link" style="width:12px; height:12px;"></i>
+              </button>
+            </td>
           </tr>
         `}).join('')}
       </tbody>

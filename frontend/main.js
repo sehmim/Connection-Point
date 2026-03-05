@@ -1,5 +1,16 @@
 const { app, BrowserWindow, ipcMain, shell } = require('electron')
 const path = require('path')
+const fs = require('fs')
+
+// Load .env from app root before anything else
+const envPath = path.join(__dirname, '.env')
+if (fs.existsSync(envPath)) {
+  fs.readFileSync(envPath, 'utf8').split('\n').forEach(line => {
+    const match = line.match(/^\s*([^#=\s]+)\s*=\s*(.*)$/)
+    if (match) process.env[match[1]] = match[2].trim()
+  })
+}
+
 const { init } = require('./src/main')
 
 let win
@@ -20,8 +31,9 @@ function createWindow() {
     }
   })
 
+  // Init DB + IPC handlers before the page loads so they're ready on first invoke
+  init(win)
   win.loadFile('renderer/index.html')
-  win.webContents.on('did-finish-load', () => init(win))
 }
 
 ipcMain.on('open-external', (_, url) => shell.openExternal(url))
