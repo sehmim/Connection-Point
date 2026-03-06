@@ -90,19 +90,22 @@ window._settingsNav = function(section) {
   window._renderSettingsUI()
 }
 
-window._settingsTrackingRepos = null  // [{ url, hostname, label }] loaded from DB
+window._settingsTrackingRepos = null   // GitHub repos loaded from DB
+window._settingsTrackingBoards = null  // Jira boards loaded from DB
 
 window._loadTrackingRepos = function() {
-  if (!window.api || !window.api.githubGetData) {
-    window._settingsTrackingRepos = []
-    window._renderSettingsUI()
-    return
-  }
-  window.api.githubGetData().then(function(data) {
-    window._settingsTrackingRepos = data.repos || []
-    window._renderSettingsUI()
-  }).catch(function() {
-    window._settingsTrackingRepos = []
+  window._settingsTrackingRepos = null
+  window._settingsTrackingBoards = null
+
+  var ghPromise = (window.api && window.api.githubGetData)
+    ? window.api.githubGetData().then(function(d) { window._settingsTrackingRepos = d.repos || [] }).catch(function() { window._settingsTrackingRepos = [] })
+    : Promise.resolve().then(function() { window._settingsTrackingRepos = [] })
+
+  var jiraPromise = (window.api && window.api.jiraGetData)
+    ? window.api.jiraGetData().then(function(d) { window._settingsTrackingBoards = d.boards || [] }).catch(function() { window._settingsTrackingBoards = [] })
+    : Promise.resolve().then(function() { window._settingsTrackingBoards = [] })
+
+  Promise.all([ghPromise, jiraPromise]).then(function() {
     window._renderSettingsUI()
   })
 }
@@ -607,11 +610,12 @@ window._renderSettingsCustomLinks = function(ws, wsIdx) {
 
 window._renderSettingsTrackingSites = function() {
   const repos = window._settingsTrackingRepos
+  const boards = window._settingsTrackingBoards
 
-  if (repos === null) {
+  if (repos === null || boards === null) {
     return `
       <h2 style="font-size:18px; font-weight:600; color:var(--text-primary); margin:0 0 4px;">Tracking Sites</h2>
-      <p style="font-size:13px; color:var(--text-muted); margin:0 0 24px;">GitHub repositories from all accounts.</p>
+      <p style="font-size:13px; color:var(--text-muted); margin:0 0 24px;">GitHub repositories and Jira boards from all accounts.</p>
       <div style="color:var(--text-muted); font-size:13px;">Loading…</div>
     `
   }
@@ -620,103 +624,213 @@ window._renderSettingsTrackingSites = function() {
     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
       <h2 style="font-size:18px; font-weight:600; color:var(--text-primary); margin:0;">Tracking Sites</h2>
     </div>
-    <p style="font-size:13px; color:var(--text-muted); margin:0 0 20px;">GitHub repositories from any account. Each hostname uses its own browser session.</p>
+    <p style="font-size:13px; color:var(--text-muted); margin:0 0 28px;">Add GitHub repos and Jira boards from any account. Each hostname uses its own browser session.</p>
 
-    <!-- Add repo input -->
-    <div style="display:flex; gap:8px; margin-bottom:24px;">
-      <input
-        id="ts-url-input"
-        type="url"
-        placeholder="https://github.com/your-org/repo"
-        oninput="window._trackingInputChanged()"
-        onkeydown="if(event.key==='Enter'){ const b=document.getElementById('ts-add-btn'); if(b&&!b.disabled) window._trackingAddRepo() }"
-        style="
-          flex:1; padding:8px 12px; border:1px solid var(--border);
-          border-radius:var(--radius); background:var(--bg-base);
-          color:var(--text-primary); font-size:13px; outline:none;
-          transition:border-color 0.15s;
-        "
-        onfocus="this.style.borderColor='var(--accent)'"
-        onblur="this.style.borderColor='var(--border)'"
-      />
-      <button
-        id="ts-add-btn"
-        onclick="window._trackingAddRepo()"
-        disabled
-        style="
-          display:flex; align-items:center; gap:6px;
-          padding:8px 14px; background:var(--accent); color:#fff;
-          border:none; border-radius:var(--radius); font-size:13px;
-          font-weight:500; cursor:pointer; white-space:nowrap;
-          opacity:0.4;
-        "
-      >
-        <i data-lucide="plus" style="width:13px; height:13px;"></i>
-        Add Repo
-      </button>
+    <!-- ── GitHub section ── -->
+    <div style="margin-bottom:32px;">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+        <img src="../assets/github.svg" style="width:14px; height:14px; object-fit:contain;"
+          onerror="this.style.display='none'">
+        <span style="font-size:12px; font-weight:600; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.06em;">GitHub Repos</span>
+      </div>
+
+      <div style="display:flex; gap:8px; margin-bottom:16px;">
+        <input
+          id="ts-url-input"
+          type="url"
+          placeholder="https://github.com/your-org/repo"
+          oninput="window._trackingInputChanged()"
+          onkeydown="if(event.key==='Enter'){ const b=document.getElementById('ts-add-btn'); if(b&&!b.disabled) window._trackingAddRepo() }"
+          style="
+            flex:1; padding:8px 12px; border:1px solid var(--border);
+            border-radius:var(--radius); background:var(--bg-base);
+            color:var(--text-primary); font-size:13px; outline:none;
+            transition:border-color 0.15s;
+          "
+          onfocus="this.style.borderColor='var(--accent)'"
+          onblur="this.style.borderColor='var(--border)'"
+        />
+        <button
+          id="ts-add-btn"
+          onclick="window._trackingAddRepo()"
+          disabled
+          style="
+            display:flex; align-items:center; gap:6px;
+            padding:8px 14px; background:var(--accent); color:#fff;
+            border:none; border-radius:var(--radius); font-size:13px;
+            font-weight:500; cursor:pointer; white-space:nowrap;
+            opacity:0.4;
+          "
+        >
+          <i data-lucide="plus" style="width:13px; height:13px;"></i>
+          Add Repo
+        </button>
+      </div>
+
+      ${repos.length === 0 ? `
+        <div style="
+          border:1px dashed var(--border); border-radius:var(--radius-lg);
+          padding:28px 24px; text-align:center;
+        ">
+          <i data-lucide="git-branch" style="width:24px; height:24px; color:var(--text-muted); opacity:0.3; margin-bottom:8px;"></i>
+          <div style="font-size:13px; color:var(--text-secondary); margin-bottom:3px;">No repos connected yet</div>
+          <div style="font-size:12px; color:var(--text-muted);">Paste a GitHub URL above to get started.</div>
+        </div>
+      ` : `
+        <div style="border:1px solid var(--border); border-radius:var(--radius-lg); overflow:hidden;">
+          ${repos.map((r, i) => `
+            <div style="
+              display:flex; align-items:center; gap:12px;
+              padding:13px 16px;
+              ${i < repos.length - 1 ? 'border-bottom:1px solid var(--border-subtle);' : ''}
+            ">
+              <img src="../assets/github.svg" style="width:15px; height:15px; object-fit:contain; flex-shrink:0;"
+                onerror="this.style.display='none'">
+              <div style="flex:1; min-width:0;">
+                <div style="font-size:13px; font-weight:500; color:var(--text-primary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${r.label}</div>
+                <div style="font-size:11px; color:var(--text-muted); margin-top:1px;">${r.url}</div>
+              </div>
+              <button
+                id="sync-btn-${i}"
+                onclick="window._syncTrackingSite(${i})"
+                style="
+                  display:flex; align-items:center; gap:5px;
+                  padding:5px 10px; flex-shrink:0;
+                  background:var(--accent); color:#fff;
+                  border:none; border-radius:var(--radius);
+                  font-size:12px; font-weight:600;
+                  font-family:'IBM Plex Sans',sans-serif;
+                  cursor:pointer; transition:opacity 0.15s;
+                "
+                onmouseover="this.style.opacity='0.85'"
+                onmouseout="this.style.opacity='1'"
+              >
+                <i data-lucide="refresh-cw" style="width:11px; height:11px;"></i>
+                Sync
+              </button>
+              <button
+                onclick="window._trackingRemoveRepo(${i})"
+                title="Remove"
+                style="
+                  display:flex; align-items:center; justify-content:center;
+                  width:28px; height:28px; flex-shrink:0;
+                  background:transparent; border:1px solid var(--border);
+                  border-radius:var(--radius); cursor:pointer;
+                  color:var(--text-muted); transition:border-color 0.15s, color 0.15s;
+                "
+                onmouseover="this.style.borderColor='var(--danger)'; this.style.color='var(--danger)'"
+                onmouseout="this.style.borderColor='var(--border)'; this.style.color='var(--text-muted)'"
+              >
+                <i data-lucide="x" style="width:12px; height:12px;"></i>
+              </button>
+            </div>
+          `).join('')}
+        </div>
+      `}
     </div>
 
-    <!-- Repo list -->
-    ${repos.length === 0 ? `
-      <div style="
-        border:1px dashed var(--border); border-radius:var(--radius-lg);
-        padding:40px 32px; text-align:center;
-      ">
-        <i data-lucide="git-branch" style="width:28px; height:28px; color:var(--text-muted); opacity:0.3; margin-bottom:10px;"></i>
-        <div style="font-size:14px; color:var(--text-secondary); margin-bottom:4px;">No repos connected yet</div>
-        <div style="font-size:12px; color:var(--text-muted);">Paste a GitHub URL above to get started.</div>
+    <!-- ── Jira section ── -->
+    <div>
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+        <img src="../assets/jira.svg" style="width:14px; height:14px; object-fit:contain;"
+          onerror="this.style.display='none'">
+        <span style="font-size:12px; font-weight:600; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.06em;">Jira Boards</span>
       </div>
-    ` : `
-      <div style="border:1px solid var(--border); border-radius:var(--radius-lg); overflow:hidden;">
-        ${repos.map((r, i) => `
-          <div style="
-            display:flex; align-items:center; gap:12px;
-            padding:13px 16px;
-            ${i < repos.length - 1 ? 'border-bottom:1px solid var(--border-subtle);' : ''}
-          ">
-            <img src="../assets/github.svg" style="width:15px; height:15px; object-fit:contain; flex-shrink:0;"
-              onerror="this.style.display='none'">
-            <div style="flex:1; min-width:0;">
-              <div style="font-size:13px; font-weight:500; color:var(--text-primary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${r.label}</div>
-              <div style="font-size:11px; color:var(--text-muted); margin-top:1px;">${r.url}</div>
+
+      <div style="display:flex; gap:8px; margin-bottom:16px;">
+        <input
+          id="ts-jira-input"
+          type="url"
+          placeholder="https://yourcompany.atlassian.net"
+          oninput="window._trackingJiraInputChanged()"
+          onkeydown="if(event.key==='Enter'){ const b=document.getElementById('ts-jira-add-btn'); if(b&&!b.disabled) window._trackingAddBoard() }"
+          style="
+            flex:1; padding:8px 12px; border:1px solid var(--border);
+            border-radius:var(--radius); background:var(--bg-base);
+            color:var(--text-primary); font-size:13px; outline:none;
+            transition:border-color 0.15s;
+          "
+          onfocus="this.style.borderColor='var(--accent)'"
+          onblur="this.style.borderColor='var(--border)'"
+        />
+        <button
+          id="ts-jira-add-btn"
+          onclick="window._trackingAddBoard()"
+          disabled
+          style="
+            display:flex; align-items:center; gap:6px;
+            padding:8px 14px; background:var(--accent); color:#fff;
+            border:none; border-radius:var(--radius); font-size:13px;
+            font-weight:500; cursor:pointer; white-space:nowrap;
+            opacity:0.4;
+          "
+        >
+          <i data-lucide="plus" style="width:13px; height:13px;"></i>
+          Add Board
+        </button>
+      </div>
+
+      ${boards.length === 0 ? `
+        <div style="
+          border:1px dashed var(--border); border-radius:var(--radius-lg);
+          padding:28px 24px; text-align:center;
+        ">
+          <i data-lucide="layout-dashboard" style="width:24px; height:24px; color:var(--text-muted); opacity:0.3; margin-bottom:8px;"></i>
+          <div style="font-size:13px; color:var(--text-secondary); margin-bottom:3px;">No boards connected yet</div>
+          <div style="font-size:12px; color:var(--text-muted);">Paste a Jira URL above to get started.</div>
+        </div>
+      ` : `
+        <div style="border:1px solid var(--border); border-radius:var(--radius-lg); overflow:hidden;">
+          ${boards.map((b, i) => `
+            <div style="
+              display:flex; align-items:center; gap:12px;
+              padding:13px 16px;
+              ${i < boards.length - 1 ? 'border-bottom:1px solid var(--border-subtle);' : ''}
+            ">
+              <img src="../assets/jira.svg" style="width:15px; height:15px; object-fit:contain; flex-shrink:0;"
+                onerror="this.style.display='none'">
+              <div style="flex:1; min-width:0;">
+                <div style="font-size:13px; font-weight:500; color:var(--text-primary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${b.label}</div>
+                <div style="font-size:11px; color:var(--text-muted); margin-top:1px;">${b.url}</div>
+              </div>
+              <button
+                id="jira-sync-btn-${i}"
+                onclick="window._syncTrackingBoard(${i})"
+                style="
+                  display:flex; align-items:center; gap:5px;
+                  padding:5px 10px; flex-shrink:0;
+                  background:var(--accent); color:#fff;
+                  border:none; border-radius:var(--radius);
+                  font-size:12px; font-weight:600;
+                  font-family:'IBM Plex Sans',sans-serif;
+                  cursor:pointer; transition:opacity 0.15s;
+                "
+                onmouseover="this.style.opacity='0.85'"
+                onmouseout="this.style.opacity='1'"
+              >
+                <i data-lucide="refresh-cw" style="width:11px; height:11px;"></i>
+                Sync
+              </button>
+              <button
+                onclick="window._trackingRemoveBoard(${i})"
+                title="Remove"
+                style="
+                  display:flex; align-items:center; justify-content:center;
+                  width:28px; height:28px; flex-shrink:0;
+                  background:transparent; border:1px solid var(--border);
+                  border-radius:var(--radius); cursor:pointer;
+                  color:var(--text-muted); transition:border-color 0.15s, color 0.15s;
+                "
+                onmouseover="this.style.borderColor='var(--danger)'; this.style.color='var(--danger)'"
+                onmouseout="this.style.borderColor='var(--border)'; this.style.color='var(--text-muted)'"
+              >
+                <i data-lucide="x" style="width:12px; height:12px;"></i>
+              </button>
             </div>
-            <button
-              id="sync-btn-${i}"
-              onclick="window._syncTrackingSite(${i})"
-              style="
-                display:flex; align-items:center; gap:5px;
-                padding:5px 10px; flex-shrink:0;
-                background:var(--accent); color:#fff;
-                border:none; border-radius:var(--radius);
-                font-size:12px; font-weight:600;
-                font-family:'IBM Plex Sans',sans-serif;
-                cursor:pointer; transition:opacity 0.15s;
-              "
-              onmouseover="this.style.opacity='0.85'"
-              onmouseout="this.style.opacity='1'"
-            >
-              <i data-lucide="refresh-cw" style="width:11px; height:11px;"></i>
-              Sync
-            </button>
-            <button
-              onclick="window._trackingRemoveRepo(${i})"
-              title="Remove"
-              style="
-                display:flex; align-items:center; justify-content:center;
-                width:28px; height:28px; flex-shrink:0;
-                background:transparent; border:1px solid var(--border);
-                border-radius:var(--radius); cursor:pointer;
-                color:var(--text-muted); transition:border-color 0.15s, color 0.15s;
-              "
-              onmouseover="this.style.borderColor='var(--danger)'; this.style.color='var(--danger)'"
-              onmouseout="this.style.borderColor='var(--border)'; this.style.color='var(--text-muted)'"
-            >
-              <i data-lucide="x" style="width:12px; height:12px;"></i>
-            </button>
-          </div>
-        `).join('')}
-      </div>
-    `}
+          `).join('')}
+        </div>
+      `}
+    </div>
   `
 }
 
@@ -807,6 +921,101 @@ window._syncTrackingSite = async function(idx) {
   } catch (err) {
     console.error('[Tracking Sites] Sync failed:', err)
     window.showToast('Sync failed: ' + (err.message || err), 'error')
+  } finally {
+    if (btn) {
+      btn.disabled = false
+      btn.innerHTML = '<i data-lucide="refresh-cw" style="width:11px;height:11px;"></i> Sync'
+      if (typeof lucide !== 'undefined') lucide.createIcons()
+    }
+  }
+}
+
+// ── Jira tracking interactions ────────────────────────────────────────────────
+
+window._trackingJiraInputChanged = function() {
+  const input = document.getElementById('ts-jira-input')
+  const btn = document.getElementById('ts-jira-add-btn')
+  if (!input || !btn) return
+  const url = input.value.trim()
+  const valid = /^https?:\/\/[^/]+/.test(url)
+  const duplicate = (window._settingsTrackingBoards || []).some(b => b.url === url)
+  btn.disabled = !valid || duplicate
+  btn.style.opacity = (!valid || duplicate) ? '0.4' : '1'
+  btn.style.cursor = (!valid || duplicate) ? 'not-allowed' : 'pointer'
+}
+
+window._trackingAddBoard = async function() {
+  const input = document.getElementById('ts-jira-input')
+  const btn = document.getElementById('ts-jira-add-btn')
+  if (!input) return
+  const url = input.value.trim()
+  if (!/^https?:\/\/[^/]+/.test(url)) return
+
+  btn.disabled = true
+  btn.innerHTML = '<i data-lucide="loader" style="width:13px;height:13px;"></i> Connecting…'
+  if (typeof lucide !== 'undefined') lucide.createIcons()
+
+  try {
+    await window.api.connectJiraSource(url)
+    const parsed = new URL(url)
+    const hostname = parsed.hostname
+    const label = hostname
+    const board = { url, hostname, label }
+
+    await window.api.jiraSaveScrape({ boards: [board], scrapes: [] })
+
+    input.value = ''
+    window.showToast('Jira board added — click Sync to fetch items', 'success')
+    window._loadTrackingRepos()
+  } catch (err) {
+    window.showToast('Failed to connect Jira: ' + (err.message || err), 'error')
+    btn.disabled = false
+    btn.innerHTML = '<i data-lucide="plus" style="width:13px;height:13px;"></i> Add Board'
+    if (typeof lucide !== 'undefined') lucide.createIcons()
+  }
+}
+
+window._trackingRemoveBoard = async function(idx) {
+  const boards = window._settingsTrackingBoards || []
+  const board = boards[idx]
+  if (!board) return
+  try {
+    await window.api.jiraDeleteBoard(board.url)
+    window._loadTrackingRepos()
+  } catch (err) {
+    window.showToast('Failed to remove: ' + (err.message || err), 'error')
+  }
+}
+
+window._syncTrackingBoard = async function(idx) {
+  const boards = window._settingsTrackingBoards || []
+  const board = boards[idx]
+  if (!board) return
+
+  const btn = document.getElementById('jira-sync-btn-' + idx)
+  if (btn) {
+    btn.disabled = true
+    btn.innerHTML = '<i data-lucide="loader" style="width:11px;height:11px;"></i> Syncing…'
+    if (typeof lucide !== 'undefined') lucide.createIcons()
+  }
+
+  try {
+    const result = await window.api.scrapeJiraBoard(board.url)
+    const items = result.items || []
+    console.log('[Tracking Sites] Jira items scraped:', items)
+    if (items.length > 0) {
+      await window.api.jiraSaveScrape({
+        boards: [board],
+        scrapes: [{ boardUrl: board.url, items }]
+      })
+      window.showToast('Synced ' + items.length + ' Jira items', 'success')
+    } else {
+      console.warn('[Tracking Sites] No Jira items parsed — page may require login or JS rendering')
+      window.showToast('No items found — check console for debug info', 'error')
+    }
+  } catch (err) {
+    console.error('[Tracking Sites] Jira sync failed:', err)
+    window.showToast('Jira sync failed: ' + (err.message || err), 'error')
   } finally {
     if (btn) {
       btn.disabled = false

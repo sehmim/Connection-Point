@@ -9,6 +9,7 @@ function registerGithubAuthIpc() {
     'github:get-data',
     'github:scrape-detail',
     'github:delete-repo',
+    'github:scrape-notifications',
   ]
   channels.forEach(c => ipcMain.removeHandler(c))
 
@@ -146,7 +147,7 @@ function registerGithubAuthIpc() {
     const now = Date.now()
 
     const insertRepo = db.prepare(`
-      INSERT OR REPLACE INTO github_repos (url, hostname, label, added_at)
+      INSERT OR IGNORE INTO github_repos (url, hostname, label, added_at)
       VALUES (@url, @hostname, @label, @added_at)
     `)
     const insertItem = db.prepare(`
@@ -264,6 +265,73 @@ function registerGithubAuthIpc() {
         reject(new Error(errDesc))
       })
     })
+  })
+
+  // Scrape unread notifications for a list of repo URLs
+  ipcMain.handle('github:scrape-notifications', async (_, repoUrls) => {
+    const results = []
+
+    for (const repoUrl of repoUrls) {
+      const { hostname, pathname } = new URL(repoUrl)
+      const repoPath = pathname.replace(/^\//, '').replace(/\/$/, '') // e.g. "org/repo"
+      const partition = 'persist:' + hostname
+      const notifUrl = `https://${hostname}/notifications?query=is%3Aunread+repo%3A${repoPath}`
+
+      const notifications = await new Promise((resolve, reject) => {
+        const win = new BrowserWindow({ show: false, webPreferences: { partition } })
+        win.loadURL(notifUrl)
+        win.webContents.once('did-finish-load', async () => {
+          try {
+            const items = await win.webContents.executeJavaScript(`
+              (function() {
+                var list = document.querySelector('.notifications-list');
+                if (!list) return { _debug: 'no .notifications-list found', items: [] };
+
+                var rows = Array.from(list.querySelectorAll('li, [class*="notification-list-item"]'));
+                var parsed = rows.map(function(row) {
+                  var titleEl = row.querySelector('a[href*="/issues/"], a[href*="/pull/"], a[href*="/commit/"], a[href*="/releases/"]');
+                  var timeEl  = row.querySelector('relative-time, time');
+                  var repoEl  = row.querySelector('[class*="repository"], a[href*="/notifications"]');
+                  var typeEl  = row.querySelector('[aria-label], [title], svg[class*="octicon"]');
+
+                  // determine type from href
+                  var href = titleEl ? titleEl.getAttribute('href') : '';
+                  var type = href.includes('/pull/') ? 'pr'
+                           : href.includes('/issues/') ? 'issue'
+                           : href.includes('/commit/') ? 'commit'
+                           : href.includes('/releases/') ? 'release'
+                           : 'other';
+
+                  return {
+                    title: titleEl ? titleEl.textContent.trim() : null,
+                    url:   titleEl ? titleEl.href : null,
+                    type:  type,
+                    repo:  ${JSON.stringify(repoPath)},
+                    date:  timeEl ? (timeEl.getAttribute('datetime') || timeEl.textContent.trim()) : null,
+                  };
+                }).filter(function(n) { return n.title; });
+
+                return { _debug: 'rows found: ' + rows.length, items: parsed };
+              })()
+            `)
+            console.log('[github-notifications]', repoPath, '—', items._debug)
+            win.close()
+            resolve(items.items || [])
+          } catch (err) {
+            win.close()
+            reject(err)
+          }
+        })
+        win.webContents.once('did-fail-load', (_, _code, errDesc) => {
+          win.close()
+          reject(new Error(errDesc))
+        })
+      })
+
+      results.push({ repoUrl, repoPath, notifications })
+    }
+
+    return results
   })
 
   // Delete a repo and its items from DB

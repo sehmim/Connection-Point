@@ -76,6 +76,38 @@ window.renderDashboard = function() {
     return
   }
 
+  // Jira tab: always load fresh from DB
+  if (dashView === 'jira' && window.api && window.api.jiraGetData) {
+    window.api.jiraGetData().then(data => {
+      console.group('[Jira] DB data')
+      console.table(data.items.map(i => ({ id: i.id, title: i.title, status: i.status, assignee: i.assignee, board_url: i.board_url })))
+      console.groupEnd()
+      window._appState.jiraItems = data.items.map(row => {
+        const raw = row.raw_json ? JSON.parse(row.raw_json) : {}
+        return {
+          id: row.id,
+          title: row.title,
+          status: row.status || '',
+          priority: row.priority || '',
+          assignee: row.assignee || '',
+          sprint: row.sprint || '',
+          dueDate: row.due_date || '',
+          url: row.url || '',
+          board_url: row.board_url,
+          source: 'jira',
+          profile: 'work',
+          _raw: raw,
+        }
+      })
+      window._renderDashboardUI(dashView)
+    }).catch(err => {
+      console.warn('[Jira] Failed to load DB data:', err)
+      window._appState.jiraItems = []
+      window._renderDashboardUI(dashView)
+    })
+    return
+  }
+
   // All other tabs: load mock data
   const loadData = (window._appState.jiraItems && window._appState.githubItems)
     ? Promise.resolve()
@@ -415,6 +447,50 @@ window._selectGithubItem = function(uid) {
     })
 }
 
+// Jira-specific select: open drawer with loading state, then fetch detail
+window._selectJiraItem = function(uid) {
+  const item = window._itemRegistry[uid]
+  if (!item) return
+
+  if (window._selectedItem && window._selectedItem._uid === uid) {
+    window._selectedItem = null
+    window._drawerWidth = null
+    const scroll = document.getElementById('dash-table-scroll')
+    const saved = scroll ? scroll.scrollTop : 0
+    window._reRenderCurrentView()
+    const ns = document.getElementById('dash-table-scroll')
+    if (ns) ns.scrollTop = saved
+    return
+  }
+
+  const prevType = window._selectedItem && window._selectedItem.source
+  if (prevType !== 'jira') window._drawerWidth = null
+  window._selectedItem = { ...item, _loading: true }
+
+  const scroll = document.getElementById('dash-table-scroll')
+  const saved = scroll ? scroll.scrollTop : 0
+  window._reRenderCurrentView()
+  const ns = document.getElementById('dash-table-scroll')
+  if (ns) ns.scrollTop = saved
+
+  if (!item.url) return
+
+  window.api.jiraScrapeDetail({ url: item.url })
+    .then(function(detail) {
+      window._selectedItem = { ...item, _detail: detail }
+      const s2 = document.getElementById('dash-table-scroll')
+      const sv2 = s2 ? s2.scrollTop : 0
+      window._reRenderCurrentView()
+      const ns2 = document.getElementById('dash-table-scroll')
+      if (ns2) ns2.scrollTop = sv2
+    })
+    .catch(function(err) {
+      console.warn('[drawer] jira detail fetch failed:', err)
+      window._selectedItem = { ...item, _detail: null, _detailError: err.message }
+      window._reRenderCurrentView()
+    })
+}
+
 window._closeItemDetail = function() {
   window._selectedItem = null
   window._drawerWidth = null
@@ -472,12 +548,36 @@ window._drawerOpenLink = function(url, label) {
 
 // ── Jira issue detail ────────────────────────────────────────────────────────
 window._renderJiraDetail = function(item) {
-  const activity = [
-    { user: 'Sarah K.', action: 'changed status to', target: item.status, time: '2h ago', avatar: 'S' },
-    { user: 'James T.', action: 'left a comment', target: 'Looks good, will pick this up in the next sprint.', time: '5h ago', avatar: 'J' },
-    { user: 'Maya R.',  action: 'set priority to', target: item.priority, time: '1d ago', avatar: 'M' },
-    { user: 'Dev Bot',  action: 'linked PR', target: '#184', time: '2d ago', avatar: 'D' },
-  ]
+  if (item._loading) {
+    return `
+      <div style="width:100%; display:flex; flex-direction:column; height:100%; overflow-y:auto;">
+        <div style="padding:16px;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
+            <div>
+              <span style="font-size:11px; font-weight:600; color:#60a5fa; background:rgba(59,130,246,0.1); padding:2px 7px; border-radius:4px;">Jira</span>
+              <div style="font-size:14px; font-weight:600; color:var(--text-primary); margin-top:6px;">${item.title}</div>
+            </div>
+            ${window._drawerCloseBtn()}
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; color:var(--text-muted); font-size:13px; margin-top:24px;">
+            <div style="width:14px;height:14px;border-radius:50%;border:2px solid var(--border);border-top-color:var(--accent);animation:spin 0.7s linear infinite;"></div>
+            Fetching details…
+          </div>
+        </div>
+      </div>`
+  }
+
+  const d = item._detail || {}
+  const title = d.title || item.title
+  const status = d.status || item.status || ''
+  const priority = d.priority || item.priority || ''
+  const assignee = d.assignee || item.assignee || '—'
+  const reporter = d.reporter || '—'
+  const sprint = d.sprint || item.sprint || '—'
+  const dueDate = item.dueDate || '—'
+  const labels = d.labels || []
+  const description = d.description || ''
+  const comments = d.comments || []
 
   return `
     <div style="width:100%; min-width:0; display:flex; flex-direction:column; height:100%; overflow-y:auto;">
@@ -486,11 +586,11 @@ window._renderJiraDetail = function(item) {
         <!-- Header -->
         <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:8px; margin-bottom:12px;">
           <div style="flex:1; min-width:0;">
-            <div style="margin-bottom:5px;">
+            <div style="margin-bottom:5px; display:flex; align-items:center; gap:6px;">
               <span style="font-size:11px; font-weight:600; color:#60a5fa; background:rgba(59,130,246,0.1); padding:2px 7px; border-radius:4px;">Jira</span>
+              ${status ? window._statusBadge(status) : ''}
             </div>
-            <div style="font-size:14px; font-weight:600; color:var(--text-primary); line-height:1.4; margin-bottom:3px;">${item.title}</div>
-            <div style="font-size:12px; color:var(--text-muted); font-family:monospace;">${item.id}</div>
+            <div style="font-size:14px; font-weight:600; color:var(--text-primary); line-height:1.4; margin-bottom:3px;">${title}</div>
           </div>
           ${window._drawerCloseBtn()}
         </div>
@@ -499,53 +599,50 @@ window._renderJiraDetail = function(item) {
 
         <!-- Metadata -->
         <div style="display:flex; flex-direction:column; gap:9px; margin-bottom:16px;">
-          ${window._drawerMetaRow('Status',    window._statusBadge(item.status))}
-          ${window._drawerMetaRow('Priority',  window._priorityDot(item.priority))}
-          ${window._drawerMetaRow('Assignee',  item.assignee || '—')}
-          ${window._drawerMetaRow('Sprint',    item.sprint || '—')}
-          ${window._drawerMetaRow('Due',       item.dueDate || '—')}
-          ${window._drawerMetaRow('Workspace', item.workspace || '—')}
+          ${priority ? window._drawerMetaRow('Priority',  window._priorityDot(priority)) : ''}
+          ${window._drawerMetaRow('Assignee',  assignee)}
+          ${window._drawerMetaRow('Reporter',  reporter)}
+          ${sprint !== '—' ? window._drawerMetaRow('Sprint', sprint) : ''}
+          ${dueDate !== '—' ? window._drawerMetaRow('Due', dueDate) : ''}
+          ${labels.length ? window._drawerMetaRow('Labels', labels.map(l => `<span style="font-size:11px;background:var(--bg-raised);border:1px solid var(--border);border-radius:4px;padding:1px 6px;margin-right:3px;">${l}</span>`).join('')) : ''}
         </div>
 
-        <div style="border-top:1px solid var(--border-subtle); margin-bottom:14px;"></div>
-
-        <!-- Description -->
-        <div style="margin-bottom:16px;">
-          <div style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">Description</div>
-          <div style="font-size:13px; color:var(--text-secondary); line-height:1.6; background:var(--bg-raised); border-radius:var(--radius); padding:10px 12px;">
-            Implement the full authentication flow including login, logout, session persistence, and token refresh. Ensure compatibility with SSO providers configured per workspace.
+        ${description ? `
+          <div style="border-top:1px solid var(--border-subtle); margin-bottom:14px;"></div>
+          <div style="margin-bottom:16px;">
+            <div style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px;">Description</div>
+            <div style="font-size:13px; color:var(--text-secondary); line-height:1.6; background:var(--bg-raised); border-radius:var(--radius); padding:10px 12px; white-space:pre-wrap; word-break:break-word;">
+              ${description}
+            </div>
           </div>
-        </div>
+        ` : ''}
 
-        <div style="border-top:1px solid var(--border-subtle); margin-bottom:14px;"></div>
-
-        <!-- Activity -->
-        <div style="margin-bottom:16px;">
-          <div style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Activity</div>
-          <div style="display:flex; flex-direction:column; gap:12px;">
-            ${activity.map(a => `
-              <div style="display:flex; gap:9px;">
-                <div style="
-                  width:26px; height:26px; border-radius:50%; flex-shrink:0;
-                  background:var(--bg-hover); border:1px solid var(--border);
-                  display:flex; align-items:center; justify-content:center;
-                  font-size:11px; font-weight:600; color:var(--text-secondary);
-                ">${a.avatar}</div>
-                <div style="flex:1; min-width:0;">
-                  <div style="font-size:12px; color:var(--text-secondary); line-height:1.4;">
-                    <span style="font-weight:600; color:var(--text-primary);">${a.user}</span>
-                    ${a.action}
-                    <span style="color:var(--accent);">${a.target}</span>
+        ${comments.length ? `
+          <div style="border-top:1px solid var(--border-subtle); margin-bottom:14px;"></div>
+          <div style="margin-bottom:16px;">
+            <div style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Comments (${comments.length})</div>
+            <div style="display:flex; flex-direction:column; gap:10px;">
+              ${comments.map(c => `
+                <div style="background:var(--bg-raised); border:1px solid var(--border-subtle); border-radius:var(--radius); padding:9px 11px;">
+                  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:5px;">
+                    <span style="font-size:12px; font-weight:600; color:var(--text-primary);">${c.user || '—'}</span>
+                    ${c.date ? `<span style="font-size:11px; color:var(--text-muted);">${c.date}</span>` : ''}
                   </div>
-                  <div style="font-size:11px; color:var(--text-muted); margin-top:1px;">${a.time}</div>
+                  <div style="font-size:12px; color:var(--text-secondary); line-height:1.5;">${c.body || ''}</div>
                 </div>
-              </div>
-            `).join('')}
+              `).join('')}
+            </div>
           </div>
-        </div>
+        ` : ''}
+
+        ${item._detailError ? `
+          <div style="font-size:12px; color:var(--warning); margin-bottom:12px;">
+            Could not fetch full details: ${item._detailError}
+          </div>
+        ` : ''}
 
         <div style="border-top:1px solid var(--border-subtle); margin-bottom:14px;"></div>
-        ${window._drawerOpenLink(item.url, 'Open in Jira')}
+        ${item.url ? window._drawerOpenLink(item.url, 'Open in Jira') : ''}
         <div style="height:16px;"></div>
       </div>
     </div>
@@ -604,7 +701,7 @@ window._renderGHIssueDetail = function(item) {
           ${window._drawerMetaRow('Updated',   item.updatedAt ? window.timeAgo(item.updatedAt) : '—')}
           ${assignees.length ? window._drawerMetaRow('Assignees', assignees.join(', ')) : ''}
           ${labels.length ? window._drawerMetaRow('Labels', labels.map(l =>
-            `<span style="font-size:11px;padding:1px 7px;border-radius:10px;background:rgba(99,102,241,0.12);color:var(--accent);margin-right:4px;">${l}</span>`
+            `<span style="font-size:11px;padding:1px 7px;border-radius:10px;background:rgba(99,102,241,0.12);color:var(--accent);margin-right:4px;">${window._normGithubLabel(l)}</span>`
           ).join('')) : ''}
         </div>
 
@@ -708,7 +805,7 @@ window._renderPRDetail = function(item) {
           ${assignees.length ? window._drawerMetaRow('Assignees', assignees.join(', ')) : ''}
           ${reviewers.length ? window._drawerMetaRow('Reviewers', reviewers.join(', ')) : ''}
           ${labels.length ? window._drawerMetaRow('Labels', labels.map(l =>
-            `<span style="font-size:11px;padding:1px 7px;border-radius:10px;background:rgba(99,102,241,0.12);color:var(--accent);margin-right:4px;">${l}</span>`
+            `<span style="font-size:11px;padding:1px 7px;border-radius:10px;background:rgba(99,102,241,0.12);color:var(--accent);margin-right:4px;">${window._normGithubLabel(l)}</span>`
           ).join('')) : ''}
           ${d.filesChanged ? window._drawerMetaRow('Files', d.filesChanged) : ''}
         </div>
@@ -774,6 +871,14 @@ window._statusBadge = function(status) {
     border-radius:var(--radius-sm); font-size:11px;
     padding:2px 7px; white-space:nowrap; font-weight:500;
   ">${status}</span>`
+}
+
+window._normGithubLabel = function(label) {
+  const map = {
+    "something isn't working": 'bug',
+    'improvements or additions to documentation': 'documentation',
+  }
+  return map[label.toLowerCase()] || label
 }
 
 window._typeBadge = function(type) {
@@ -1453,15 +1558,22 @@ window._renderAllTable = function(items) {
 }
 
 window._renderJiraTable = function(items) {
+  if (items.length === 0) {
+    return `
+      <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:200px; gap:10px;">
+        <i data-lucide="layout-dashboard" style="width:28px; height:28px; color:var(--text-muted); opacity:0.3;"></i>
+        <div style="color:var(--text-muted); font-size:14px;">No Jira items yet</div>
+        <div style="color:var(--text-muted); font-size:12px;">Add a Jira board in Settings → Tracking Sites and click Sync</div>
+      </div>`
+  }
   items.forEach(item => {
     const uid = 'j-' + item.id
     window._itemRegistry[uid] = { ...item, _uid: uid, source: 'jira' }
   })
   return `
-    <table style="width:100%; border-collapse:collapse; min-width:700px;">
+    <table style="width:100%; border-collapse:collapse; min-width:600px;">
       <thead>
         <tr>
-          <th style="${thStyle}">ID</th>
           <th style="${thStyle}">Title</th>
           <th style="${thStyle}">Status</th>
           <th style="${thStyle}">Priority</th>
@@ -1474,15 +1586,26 @@ window._renderJiraTable = function(items) {
         ${items.map(item => {
           const uid = 'j-' + item.id
           const isSelected = window._selectedItem && window._selectedItem._uid === uid
+          const escapedUrl = (item.url || '').replace(/'/g, "\\'")
           return `
-          <tr data-uid="${uid}" data-selected="${isSelected ? '1' : '0'}"
+          <tr class="jira-row" data-uid="${uid}" data-selected="${isSelected ? '1' : '0'}"
             style="cursor:pointer; transition:background 0.1s; background:${isSelected ? 'var(--accent-muted)' : 'transparent'};"
-            onmouseover="if(this.getAttribute('data-selected')==='0') this.style.background='var(--bg-hover)'"
-            onmouseout="if(this.getAttribute('data-selected')==='0') this.style.background='transparent'"
-            onclick="window._selectItem('${uid}')"
+            onmouseover="this.style.background='${isSelected ? 'var(--accent-muted)' : 'var(--bg-hover)'}'; var b=this.querySelector('.jira-open-btn'); if(b) b.style.opacity='1'"
+            onmouseout="this.style.background='${isSelected ? 'var(--accent-muted)' : 'transparent'}'; var b=this.querySelector('.jira-open-btn'); if(b) b.style.opacity='0'"
+            onclick="window._selectJiraItem('${uid}')"
           >
-            <td style="${tdStyle} font-family:monospace; color:var(--text-muted);">${item.id}</td>
-            <td style="${tdStyle} max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${item.title}</td>
+            <td style="${tdStyle} max-width:340px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; position:relative;">
+              ${item.title}
+              ${item.url ? `<button class="jira-open-btn" onclick="event.stopPropagation(); window.api.openExternal('${escapedUrl}');" style="
+                position:absolute; right:8px; top:50%; transform:translateY(-50%);
+                opacity:0; background:var(--bg-surface); border:1px solid var(--border);
+                border-radius:var(--radius-sm); padding:2px 6px; cursor:pointer;
+                display:inline-flex; align-items:center; gap:4px; font-size:11px; color:var(--text-secondary);
+                transition:opacity 0.15s; font-family:'IBM Plex Sans',sans-serif;
+              ">
+                <i data-lucide="external-link" style="width:11px;height:11px;"></i>
+              </button>` : ''}
+            </td>
             <td style="${tdStyle}">${window._statusBadge(item.status)}</td>
             <td style="${tdStyle}">${window._priorityDot(item.priority)}</td>
             <td style="${tdStyle} color:var(--text-secondary);">${item.assignee || '—'}</td>
@@ -1803,11 +1926,142 @@ window._calFilter = function(key, value) {
 
 // ─── GitHub table ─────────────────────────────────────────────────────────────
 
-window._renderGithubTable = function(items) {
-  if (items.length === 0) {
-    return `<div style="display:flex; align-items:center; justify-content:center; height:200px; color:var(--text-muted); font-size:14px;">No GitHub items found. Connect a repo in onboarding and sync.</div>`
+window._ghNotifState = window._ghNotifState || { status: 'idle', results: null } // idle | loading | done | error
+
+window._loadGithubNotifications = async function() {
+  // get all tracked repo URLs from DB
+  let repos = []
+  try {
+    const data = await window.api.githubGetData()
+    repos = (data.repos || []).map(r => r.url)
+  } catch(e) { /* no-op */ }
+
+  if (!repos.length) {
+    window._ghNotifState = { status: 'done', results: [] }
+    window._reRenderCurrentView()
+    return
   }
+
+  window._ghNotifState = { status: 'loading', results: null }
+  window._reRenderCurrentView()
+
+  try {
+    const results = await window.api.githubScrapeNotifications(repos)
+    window._ghNotifState = { status: 'done', results }
+  } catch(err) {
+    window._ghNotifState = { status: 'error', results: null, error: err.message }
+  }
+  window._reRenderCurrentView()
+}
+
+window._renderGithubNotifBar = function() {
+  const s = window._ghNotifState
+  const notifCount = s.results ? s.results.reduce(function(acc, r) { return acc + r.notifications.length }, 0) : 0
+
   return `
+    <div style="
+      display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      padding:10px 16px; border-bottom:1px solid var(--border-subtle);
+      background:var(--bg-surface);
+    ">
+      <button
+        onclick="window._loadGithubNotifications()"
+        ${s.status === 'loading' ? 'disabled' : ''}
+        style="
+          display:inline-flex; align-items:center; gap:6px;
+          padding:5px 12px; border-radius:var(--radius);
+          background:var(--bg-raised); border:1px solid var(--border);
+          font-size:12px; font-weight:600; color:var(--text-secondary);
+          cursor:${s.status === 'loading' ? 'default' : 'pointer'};
+          font-family:'IBM Plex Sans',sans-serif; transition:border-color 0.15s;
+        "
+        onmouseover="this.style.borderColor='var(--accent)'"
+        onmouseout="this.style.borderColor='var(--border)'"
+      >
+        ${s.status === 'loading'
+          ? `<div style="width:11px;height:11px;border-radius:50%;border:2px solid var(--border);border-top-color:var(--accent);animation:spin 0.7s linear infinite;"></div> Checking…`
+          : `<i data-lucide="bell" style="width:12px;height:12px;"></i> Check notifications`
+        }
+      </button>
+
+      ${s.status === 'done' && notifCount === 0
+        ? `<span style="font-size:12px; color:var(--text-muted);">No unread notifications</span>`
+        : ''
+      }
+      ${s.status === 'error'
+        ? `<span style="font-size:12px; color:var(--danger);">Error: ${s.error}</span>`
+        : ''
+      }
+      ${s.status === 'done' && notifCount > 0
+        ? `<span style="
+            font-size:11px; font-weight:700;
+            background:var(--accent-muted); color:var(--accent);
+            border-radius:10px; padding:1px 8px;
+          ">${notifCount} unread</span>`
+        : ''
+      }
+    </div>
+
+    ${s.status === 'done' && notifCount > 0 ? window._renderGithubNotifList(s.results) : ''}
+  `
+}
+
+window._renderGithubNotifList = function(results) {
+  return `
+    <div style="border-bottom:1px solid var(--border-subtle); background:var(--bg-surface);">
+      ${results.filter(function(r) { return r.notifications.length > 0 }).map(function(r) {
+        return `
+          <div style="padding:8px 16px 4px;">
+            <div style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px;">
+              ${r.repoPath}
+            </div>
+            ${r.notifications.map(function(n) {
+              const escapedUrl = (n.url || '').replace(/'/g, "\\'")
+              const typeColor = n.type === 'pr' ? '#818cf8' : n.type === 'issue' ? '#f87171' : 'var(--text-muted)'
+              const typeBg    = n.type === 'pr' ? 'rgba(99,102,241,0.12)' : n.type === 'issue' ? 'rgba(239,68,68,0.1)' : 'var(--bg-raised)'
+              const typeLabel = n.type === 'pr' ? 'PR' : n.type === 'issue' ? 'Issue' : n.type === 'commit' ? 'Commit' : n.type === 'release' ? 'Release' : 'Other'
+              return `
+                <div style="
+                  display:flex; align-items:center; gap:10px;
+                  padding:7px 0; border-bottom:1px solid var(--border-subtle);
+                ">
+                  <span style="
+                    font-size:10px; font-weight:600; padding:1px 6px;
+                    border-radius:var(--radius-sm); white-space:nowrap; flex-shrink:0;
+                    background:${typeBg}; color:${typeColor};
+                  ">${typeLabel}</span>
+                  <span style="flex:1; min-width:0; font-size:13px; color:var(--text-primary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${n.title}</span>
+                  ${n.date ? `<span style="font-size:11px; color:var(--text-muted); flex-shrink:0; white-space:nowrap;">${n.date}</span>` : ''}
+                  ${n.url ? `
+                    <button onclick="window.api.openExternal('${escapedUrl}')" style="
+                      flex-shrink:0; background:none; border:1px solid var(--border);
+                      border-radius:var(--radius-sm); padding:2px 6px; cursor:pointer;
+                      display:inline-flex; align-items:center; color:var(--text-muted);
+                      font-family:'IBM Plex Sans',sans-serif; transition:border-color 0.15s, color 0.15s;
+                    "
+                    onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
+                    onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-muted)'"
+                    >
+                      <i data-lucide="external-link" style="width:11px;height:11px;"></i>
+                    </button>
+                  ` : ''}
+                </div>
+              `
+            }).join('')}
+          </div>
+        `
+      }).join('')}
+    </div>
+  `
+}
+
+window._renderGithubTable = function(items) {
+  const notifBar = window._renderGithubNotifBar()
+
+  if (items.length === 0) {
+    return notifBar + `<div style="display:flex; align-items:center; justify-content:center; height:200px; color:var(--text-muted); font-size:14px;">No GitHub items found. Connect a repo in onboarding and sync.</div>`
+  }
+  return notifBar + `
     <table style="width:100%; border-collapse:collapse; min-width:600px;">
       <thead>
         <tr>

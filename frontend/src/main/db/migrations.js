@@ -14,6 +14,15 @@ const MIGRATIONS = [
   { version: 3, up: (db) => db.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_github_items_url ON github_items(url);
   `) },
+  { version: 4, up: (db) => db.exec(`
+    CREATE TABLE IF NOT EXISTS jira_boards (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      url TEXT NOT NULL UNIQUE,
+      hostname TEXT NOT NULL,
+      label TEXT NOT NULL,
+      added_at INTEGER NOT NULL
+    );
+  `) },
 ]
 
 function runMigrations(db) {

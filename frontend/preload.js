@@ -53,6 +53,15 @@ contextBridge.exposeInMainWorld('api', {
   githubGetData: () => ipcRenderer.invoke('github:get-data'),
   githubDeleteRepo: (url) => ipcRenderer.invoke('github:delete-repo', url),
   githubScrapeDetail: (opts) => ipcRenderer.invoke('github:scrape-detail', opts),
+  githubScrapeNotifications: (repoUrls) => ipcRenderer.invoke('github:scrape-notifications', repoUrls),
+
+  // Jira source auth — opens persisted session popup per hostname
+  connectJiraSource: (url) => ipcRenderer.invoke('connect-jira-source', url),
+  scrapeJiraBoard: (boardUrl) => ipcRenderer.invoke('scrape-jira-board', boardUrl),
+  jiraSaveScrape: (data) => ipcRenderer.invoke('jira:save-scrape', data),
+  jiraGetData: () => ipcRenderer.invoke('jira:get-data'),
+  jiraDeleteBoard: (url) => ipcRenderer.invoke('jira:delete-board', url),
+  jiraScrapeDetail: (opts) => ipcRenderer.invoke('jira:scrape-detail', opts),
 
   // Legacy stub (getItems) — keep for compatibility
   getItems: (filters) => ipcRenderer.invoke('data:jira', filters)
