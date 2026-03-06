@@ -71,8 +71,9 @@ function registerJiraAuthIpc() {
     const { hostname } = new URL(boardUrl)
     const partition = 'persist:' + hostname
 
-    // Determine the base URL for REST API
+    // Derive backlog URL: strip trailing slash, append /backlog if not already there
     const base = boardUrl.replace(/\/$/, '')
+    const backlogUrl = base.endsWith('/backlog') ? base : base + '/backlog'
 
     function scrapeUrl(url) {
       return new Promise((resolve, reject) => {
@@ -149,10 +150,9 @@ function registerJiraAuthIpc() {
       })
     }
 
-    // Try to navigate to the board/backlog URL
-    // Support both classic /jira/software/projects/KEY/boards and next-gen
-    const result = await scrapeUrl(base)
-    return { url: base, items: result.items, currentUser: result.currentUser }
+    console.log('[jira-auth] loading backlog URL:', backlogUrl)
+    const result = await scrapeUrl(backlogUrl)
+    return { url: boardUrl, items: result.items, currentUser: result.currentUser }
   })
 
   // Save boards + scraped items to DB
