@@ -79,73 +79,94 @@ function registerJiraAuthIpc() {
       return new Promise((resolve, reject) => {
         const win = new BrowserWindow({ show: false, webPreferences: { partition } })
         win.loadURL(url)
-        win.webContents.once('did-finish-load', async () => {
-          try {
-            const result = await win.webContents.executeJavaScript(`
-              (function() {
-                var wrapper = document.querySelector('[data-onboarding-observer-id="backlog-wrapper"]');
 
-                if (!wrapper) {
-                  return {
+        win.webContents.once('did-fail-load', (_, _code, errDesc) => {
+          win.close()
+          reject(new Error(errDesc))
+        })
+
+        win.webContents.once('did-finish-load', () => {
+          // Jira is a React SPA — poll for the backlog-wrapper element up to 15s
+          const pollScript = `
+            new Promise(function(resolve) {
+              var attempts = 0;
+              var maxAttempts = 30; // 30 * 500ms = 15s
+              function check() {
+                var wrapper = document.querySelector('[data-onboarding-observer-id="backlog-wrapper"]');
+                if (wrapper) {
+                  resolve({ found: true, html: wrapper.outerHTML, innerText: wrapper.innerText });
+                  return;
+                }
+                attempts++;
+                if (attempts >= maxAttempts) {
+                  resolve({
                     found: false,
                     url: window.location.href,
                     bodyPreview: document.body.innerHTML.slice(0, 1000),
-                    items: [],
-                    currentUser: null,
-                  };
+                  });
+                  return;
                 }
+                setTimeout(check, 500);
+              }
+              check();
+            })
+          `
 
-                // Log every direct child node for inspection
+          win.webContents.executeJavaScript(pollScript).then(function(result) {
+            if (!result.found) {
+              console.warn('[jira-auth] backlog-wrapper NOT FOUND after 15s at:', result.url)
+              console.warn('[jira-auth] body preview:\n', result.bodyPreview)
+              win.close()
+              resolve({ items: [], currentUser: null })
+              return
+            }
+
+            // Now extract the child nodes for inspection
+            const extractScript = `
+              (function() {
+                var wrapper = document.querySelector('[data-onboarding-observer-id="backlog-wrapper"]');
                 var children = Array.from(wrapper.children);
-                var childInfo = children.map(function(el, i) {
-                  return {
-                    index: i,
-                    tag: el.tagName,
-                    id: el.id || null,
-                    className: el.className || null,
-                    dataAttrs: Array.from(el.attributes)
-                      .filter(function(a) { return a.name.startsWith('data-'); })
-                      .reduce(function(acc, a) { acc[a.name] = a.value; return acc; }, {}),
-                    innerText: el.innerText ? el.innerText.trim().slice(0, 200) : null,
-                    outerHTMLPreview: el.outerHTML.slice(0, 400),
-                  };
-                });
-
                 return {
-                  found: true,
                   url: window.location.href,
                   wrapperTag: wrapper.tagName,
                   wrapperClass: wrapper.className,
                   childCount: children.length,
-                  children: childInfo,
-                  items: [],
-                  currentUser: null,
+                  children: children.map(function(el, i) {
+                    return {
+                      index: i,
+                      tag: el.tagName,
+                      id: el.id || null,
+                      className: el.className || null,
+                      dataAttrs: Array.from(el.attributes)
+                        .filter(function(a) { return a.name.startsWith('data-'); })
+                        .reduce(function(acc, a) { acc[a.name] = a.value; return acc; }, {}),
+                      innerText: el.innerText ? el.innerText.trim().slice(0, 300) : null,
+                      outerHTMLPreview: el.outerHTML.slice(0, 600),
+                    };
+                  }),
                 };
               })()
-            `)
-            if (!result.found) {
-              console.warn('[jira-auth] backlog-wrapper NOT FOUND at:', result.url)
-              console.warn('[jira-auth] body preview:\n', result.bodyPreview)
-            } else {
-              console.log('[jira-auth] backlog-wrapper found — tag:', result.wrapperTag, '— class:', result.wrapperClass)
-              console.log('[jira-auth] child count:', result.childCount)
-              result.children.forEach(function(c) {
-                console.log('[jira-auth] child[' + c.index + ']', c.tag, c.id ? '#' + c.id : '', c.className ? '.' + c.className.split(' ').join('.') : '')
+            `
+
+            win.webContents.executeJavaScript(extractScript).then(function(data) {
+              console.log('[jira-auth] backlog-wrapper found — tag:', data.wrapperTag, '— class:', data.wrapperClass)
+              console.log('[jira-auth] child count:', data.childCount)
+              data.children.forEach(function(c) {
+                console.log('[jira-auth] child[' + c.index + ']', c.tag, c.id ? '#' + c.id : '', c.className ? '.' + c.className.split(' ').slice(0, 3).join('.') : '')
                 if (Object.keys(c.dataAttrs).length) console.log('  data-attrs:', c.dataAttrs)
                 if (c.innerText) console.log('  text:', c.innerText)
                 console.log('  html:', c.outerHTMLPreview)
               })
-            }
-            win.close()
-            resolve({ items: result.items, currentUser: result.currentUser })
-          } catch (err) {
+              win.close()
+              resolve({ items: [], currentUser: null })
+            }).catch(function(err) {
+              win.close()
+              reject(err)
+            })
+          }).catch(function(err) {
             win.close()
             reject(err)
-          }
-        })
-        win.webContents.once('did-fail-load', (_, _code, errDesc) => {
-          win.close()
-          reject(new Error(errDesc))
+          })
         })
       })
     }
