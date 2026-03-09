@@ -66,113 +66,165 @@ function registerJiraAuthIpc() {
     })
   })
 
-  // Scrape Jira board backlog — only items where user was mentioned/assigned/created
+  // Scrape Jira active sprint board — only items where user was mentioned/assigned/created
   ipcMain.handle('scrape-jira-board', async (_, boardUrl) => {
     const { hostname } = new URL(boardUrl)
     const partition = 'persist:' + hostname
+    const ses = session.fromPartition(partition)
 
-    // Derive backlog URL: strip trailing slash, append /backlog if not already there
+    // Build board URL with assignee filter
     const base = boardUrl.replace(/\/$/, '')
-    const backlogUrl = base.endsWith('/backlog') ? base : base + '/backlog'
-
+    
+    // First load the page to get the user ID, then scrape
     function scrapeUrl(url) {
       return new Promise((resolve, reject) => {
         const win = new BrowserWindow({ show: false, webPreferences: { partition } })
+        console.log('[jira-auth] Loading URL:', url)
         win.loadURL(url)
 
         win.webContents.once('did-fail-load', (_, _code, errDesc) => {
+          console.log('[jira-auth] Failed to load:', errDesc)
           win.close()
           reject(new Error(errDesc))
         })
 
         win.webContents.once('did-finish-load', () => {
-          // Jira is a React SPA — poll for the backlog-wrapper element up to 15s
-          const pollScript = `
-            new Promise(function(resolve) {
-              var attempts = 0;
-              var maxAttempts = 30; // 30 * 500ms = 15s
-              function check() {
-                var wrapper = document.querySelector('[data-onboarding-observer-id="backlog-wrapper"]');
-                if (wrapper) {
-                  resolve({ found: true, html: wrapper.outerHTML, innerText: wrapper.innerText });
-                  return;
-                }
-                attempts++;
-                if (attempts >= maxAttempts) {
-                  resolve({
-                    found: false,
-                    url: window.location.href,
-                    bodyPreview: document.body.innerHTML.slice(0, 1000),
-                  });
-                  return;
-                }
-                setTimeout(check, 500);
-              }
-              check();
-            })
-          `
-
-          win.webContents.executeJavaScript(pollScript).then(function(result) {
-            if (!result.found) {
-              console.warn('[jira-auth] backlog-wrapper NOT FOUND after 15s at:', result.url)
-              console.warn('[jira-auth] body preview:\n', result.bodyPreview)
-              win.close()
-              resolve({ items: [], currentUser: null })
-              return
-            }
-
-            // Now extract the child nodes for inspection
-            const extractScript = `
-              (function() {
-                var wrapper = document.querySelector('[data-onboarding-observer-id="backlog-wrapper"]');
-                var children = Array.from(wrapper.children);
-                return {
-                  url: window.location.href,
-                  wrapperTag: wrapper.tagName,
-                  wrapperClass: wrapper.className,
-                  childCount: children.length,
-                  children: children.map(function(el, i) {
-                    return {
-                      index: i,
-                      tag: el.tagName,
-                      id: el.id || null,
-                      className: el.className || null,
-                      dataAttrs: Array.from(el.attributes)
-                        .filter(function(a) { return a.name.startsWith('data-'); })
-                        .reduce(function(acc, a) { acc[a.name] = a.value; return acc; }, {}),
-                      innerText: el.innerText ? el.innerText.trim().slice(0, 300) : null,
-                      outerHTMLPreview: el.outerHTML.slice(0, 600),
-                    };
-                  }),
-                };
-              })()
-            `
-
-            win.webContents.executeJavaScript(extractScript).then(function(data) {
-              console.log('[jira-auth] backlog-wrapper found — tag:', data.wrapperTag, '— class:', data.wrapperClass)
-              console.log('[jira-auth] child count:', data.childCount)
-              data.children.forEach(function(c) {
-                console.log('[jira-auth] child[' + c.index + ']', c.tag, c.id ? '#' + c.id : '', c.className ? '.' + c.className.split(' ').slice(0, 3).join('.') : '')
-                if (Object.keys(c.dataAttrs).length) console.log('  data-attrs:', c.dataAttrs)
-                if (c.innerText) console.log('  text:', c.innerText)
-                console.log('  html:', c.outerHTMLPreview)
-              })
-              win.close()
-              resolve({ items: [], currentUser: null })
-            }).catch(function(err) {
-              win.close()
-              reject(err)
-            })
-          }).catch(function(err) {
-            win.close()
-            reject(err)
-          })
+          console.log('[jira-auth] Page loaded, waiting for elements...')
+          doScrape(win, resolve, reject)
         })
       })
     }
 
-    console.log('[jira-auth] loading backlog URL:', backlogUrl)
-    const result = await scrapeUrl(backlogUrl)
+    function doScrape(win, resolve, reject) {
+      console.log('[jira-auth] Starting scrape...')
+      const pollScript = `
+        new Promise(function(resolve) {
+          var attempts = 0;
+          var maxAttempts = 30;
+          function check() {
+            var wrapper = document.querySelector('[data-testid="platform-board-kit.ui.swimlane.swimlane-wrapper"]');
+            if (wrapper) { resolve({ found: true }); return; }
+            attempts++;
+            if (attempts >= maxAttempts) { resolve({ found: false }); return; }
+            setTimeout(check, 500);
+          }
+          check();
+        })
+      `
+
+      win.webContents.executeJavaScript(pollScript).then(function(result) {
+        if (!result.found) {
+          console.warn('[jira-auth] swimlane-wrapper NOT FOUND')
+          win.close()
+          resolve({ items: [], currentUser: null })
+          return
+        }
+
+        const extractScript = `
+          (function() {
+            var wrappers = document.querySelectorAll('[data-testid="platform-board-kit.ui.swimlane.swimlane-wrapper"]');
+            console.log('[jira-auth] Found wrappers:', wrappers.length);
+            
+            // Get the wrapper with the most cards (likely active sprint)
+            var wrapper = null;
+            var maxCards = 0;
+            for (var i = 0; i < wrappers.length; i++) {
+              var cards = wrappers[i].querySelectorAll('[data-testid="software-context-menu.ui.context-menu.children-wrapper"]');
+              console.log('[jira-auth] Wrapper', i, 'has cards:', cards.length);
+              if (cards.length > maxCards) {
+                maxCards = cards.length;
+                wrapper = wrappers[i];
+              }
+            }
+            
+            console.log('[jira-auth] Using wrapper with', maxCards, 'cards');
+            if (!wrapper) return { found: false };
+
+            var sprintName = '', sprintDates = '';
+            var sprintEl = wrapper.querySelector('[data-testid="platform-board-kit.ui.plan-mode-header"]');
+            if (sprintEl) {
+              var text = sprintEl.textContent.trim();
+              var match = text.match(/(.+?)\\s+(\\d+\\s+\\w+\\s*[-–]\\s*\\d+\\s+\\w+)/);
+              if (match) { sprintName = match[1].trim(); sprintDates = match[2].trim(); }
+              else sprintName = text;
+            }
+
+            // Try to get sprint name from anywhere on the page if not found in wrapper
+            if (!sprintName) {
+              var anySprintEl = document.querySelector('[data-testid="platform-board-kit.ui.plan-mode-header"]');
+              if (anySprintEl) {
+                var text = anySprintEl.textContent.trim();
+                var match = text.match(/(.+?)\\s+(\\d+\\s+\\w+\\s*[-–]\\s*\\d+\\s+\\w+)/);
+                if (match) { sprintName = match[1].trim(); sprintDates = match[2].trim(); }
+                else sprintName = text;
+              }
+            }
+
+            var allIssues = [];
+            var cards = wrapper.querySelectorAll('[data-testid="software-context-menu.ui.context-menu.children-wrapper"]');
+            console.log('[jira-auth] Found cards:', cards.length);
+            
+            cards.forEach(function(card) {
+              var keyLink = card.querySelector('[data-testid="platform-card.common.ui.key.key"] a');
+              var href = keyLink ? keyLink.href : '';
+              var keyMatch = href.match(/\\/browse\\/([A-Z]+-\\d+)/);
+              var key = keyMatch ? keyMatch[1] : '';
+              
+              var titleEl = card.querySelector('[data-component-selector="platform-card.ui.card.card-content.content-section"]');
+              var title = titleEl ? titleEl.textContent.trim().replace(/\\s+/g, ' ').slice(0, 200) : '';
+              
+              var statusEl = card.querySelector('[data-testid="platform-card.common.ui.custom-fields.card-custom-field.text-card-custom-field-content.field"]');
+              var status = statusEl ? statusEl.textContent.trim() : '';
+              
+              var priorityEl = card.querySelector('[data-testid="platform-card.common.ui.priority.icon"] img');
+              var priority = '';
+              if (priorityEl && priorityEl.alt) {
+                var m = priorityEl.alt.match(/P\\d+\\s*-\\s*(\\w+)/);
+                priority = m ? m[1] : priorityEl.alt;
+              }
+              
+              var estimateEl = card.querySelector('[data-testid="software-board.common.fields.estimate-field.static.estimate-wrapper"]');
+              var estimate = estimateEl ? estimateEl.textContent.trim() : '';
+              
+              var epicEl = card.querySelector('[data-testid="issue-field-parent-switcher.common.ui.epic-lozenge.epic-lozenge"]');
+              var epic = epicEl ? epicEl.textContent.trim() : '';
+              
+              if (key) {
+                allIssues.push({
+                  key: key, title: title, status: status, priority: priority,
+                  estimate: estimate, epic: epic,
+                  url: window.location.origin + '/browse/' + key
+                });
+              }
+            });
+
+            console.log('[jira-auth] === SEMANTIC DATA ===');
+            console.log('[jira-auth] Sprint:', sprintName);
+            console.log('[jira-auth] Total issues:', allIssues.length);
+            console.log('[jira-auth] Issues:', JSON.stringify(allIssues, null, 2));
+
+            return { found: true, sprintName: sprintName, sprintDates: sprintDates, issues: allIssues, debug: { wrapperCount: wrappers ? wrappers.length : 0, cardCount: cards ? cards.length : 0 } };
+          })()
+        `
+
+        win.webContents.executeJavaScript(extractScript).then(function(data) {
+          console.log('[jira-auth] Extraction complete, items:', data.issues ? data.issues.length : 0)
+          console.log('[jira-auth] Debug:', data.debug)
+          console.log('[jira-auth] Sprint:', data.sprintName)
+          win.close()
+          resolve({ items: data.issues || [], currentUser: null, sprintName: data.sprintName, sprintDates: data.sprintDates, totalItems: (data.issues || []).length })
+        }).catch(function(err) {
+          win.close()
+          reject(err)
+        })
+      }).catch(function(err) {
+        win.close()
+        reject(err)
+      })
+    }
+
+    console.log('[jira-auth] loading board URL:', base)
+    const result = await scrapeUrl(base)
     return { url: boardUrl, items: result.items, currentUser: result.currentUser }
   })
 
@@ -187,11 +239,12 @@ function registerJiraAuthIpc() {
     `)
     const insertItem = db.prepare(`
       INSERT INTO jira_items
-        (id, workspace_id, profile_id, integration_id, board_url, title, status, priority, assignee, sprint, due_date, url, description, synced_at, raw_json)
+        (id, workspace_id, profile_id, integration_id, board_url, title, status, priority, assignee, sprint, due_date, url, description, epic, estimate, issue_type, synced_at, raw_json)
       VALUES
-        (@id, '', '', '', @board_url, @title, @status, @priority, @assignee, '', '', @url, '', @synced_at, @raw_json)
+        (@id, '', '', '', @board_url, @title, @status, @priority, '', '', '', @url, '', @epic, @estimate, @issue_type, @synced_at, @raw_json)
       ON CONFLICT(id) DO UPDATE SET
-        title=excluded.title, status=excluded.status, assignee=excluded.assignee,
+        title=excluded.title, status=excluded.status, priority=excluded.priority,
+        epic=excluded.epic, estimate=excluded.estimate, issue_type=excluded.issue_type,
         synced_at=excluded.synced_at, raw_json=excluded.raw_json
     `)
 
@@ -208,7 +261,9 @@ function registerJiraAuthIpc() {
             title: item.title || '',
             status: item.status || '',
             priority: item.priority || '',
-            assignee: item.assignee || '',
+            epic: item.epic || '',
+            estimate: item.estimate || '',
+            issue_type: item.issueType || '',
             url: item.url || '',
             synced_at: now,
             raw_json: JSON.stringify(item),

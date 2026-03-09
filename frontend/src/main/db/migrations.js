@@ -23,6 +23,11 @@ const MIGRATIONS = [
       added_at INTEGER NOT NULL
     );
   `) },
+  { version: 5, up: (db) => db.exec(`
+    ALTER TABLE jira_items ADD COLUMN epic TEXT;
+    ALTER TABLE jira_items ADD COLUMN estimate TEXT;
+    ALTER TABLE jira_items ADD COLUMN issue_type TEXT;
+  `) },
 ]
 
 function runMigrations(db) {

@@ -1577,9 +1577,9 @@ window._renderJiraTable = function(items) {
           <th style="${thStyle}">Title</th>
           <th style="${thStyle}">Status</th>
           <th style="${thStyle}">Priority</th>
-          <th style="${thStyle}">Assignee</th>
-          <th style="${thStyle}">Sprint</th>
-          <th style="${thStyle}">Due Date</th>
+          <th style="${thStyle}">Epic</th>
+          <th style="${thStyle}">Estimate</th>
+          <th style="${thStyle}">Type</th>
         </tr>
       </thead>
       <tbody>
@@ -1608,9 +1608,9 @@ window._renderJiraTable = function(items) {
             </td>
             <td style="${tdStyle}">${window._statusBadge(item.status)}</td>
             <td style="${tdStyle}">${window._priorityDot(item.priority)}</td>
-            <td style="${tdStyle} color:var(--text-secondary);">${item.assignee || '—'}</td>
-            <td style="${tdStyle} color:var(--text-muted);">${item.sprint || '—'}</td>
-            <td style="${tdStyle} color:var(--text-muted); white-space:nowrap;">${item.dueDate || '—'}</td>
+            <td style="${tdStyle} color:var(--text-muted); max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${item.epic || '—'}</td>
+            <td style="${tdStyle} color:var(--text-secondary);">${item.estimate || '—'}</td>
+            <td style="${tdStyle}">${item.issue_type || item.issueType || 'Story'}</td>
           </tr>
         `}).join('')}
       </tbody>

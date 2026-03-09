@@ -47,6 +47,9 @@ CREATE TABLE IF NOT EXISTS jira_items (
   due_date TEXT,
   url TEXT,
   description TEXT,
+  epic TEXT,
+  estimate TEXT,
+  issue_type TEXT,
   synced_at INTEGER,
   raw_json TEXT
 );
