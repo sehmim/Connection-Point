@@ -63,6 +63,16 @@ contextBridge.exposeInMainWorld('api', {
   jiraDeleteBoard: (url) => ipcRenderer.invoke('jira:delete-board', url),
   jiraScrapeDetail: (opts) => ipcRenderer.invoke('jira:scrape-detail', opts),
 
+  // Calendar source auth — per-email isolated session partition
+  connectCalendarSource: (email) => ipcRenderer.invoke('connect-calendar-source', email),
+  scrapeCalendarEvents: (email) => ipcRenderer.invoke('scrape-calendar-events', email),
+  calendarSaveScrape: (data) => ipcRenderer.invoke('calendar:save-scrape', data),
+  calendarGetData: () => ipcRenderer.invoke('calendar:get-data'),
+  calendarDeleteSource: (email) => ipcRenderer.invoke('calendar:delete-source', email),
+
+  // Session partitions
+  listPartitions: () => ipcRenderer.invoke('session:list-partitions'),
+
   // Legacy stub (getItems) — keep for compatibility
   getItems: (filters) => ipcRenderer.invoke('data:jira', filters)
 })

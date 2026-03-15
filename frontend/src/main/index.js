@@ -7,11 +7,13 @@ const { registerLlmIpc } = require('./ipc/llm.ipc')
 const { registerSettingsIpc } = require('./ipc/settings.ipc')
 const { registerGithubAuthIpc } = require('./ipc/github-auth.ipc')
 const { registerJiraAuthIpc } = require('./ipc/jira-auth.ipc')
+const { registerCalendarAuthIpc } = require('./ipc/calendar-auth.ipc')
 
 function init(win) {
   initDb()
   registerGithubAuthIpc()
   registerJiraAuthIpc()
+  registerCalendarAuthIpc()
   registerProfilesIpc()
   registerSyncIpc(win)
   registerDataIpc()

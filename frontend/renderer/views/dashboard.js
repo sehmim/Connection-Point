@@ -29,10 +29,30 @@ window.renderDashboard = function() {
     console.groupEnd()
   }
 
-  // Calendar view has its own data fetch path
+  // Calendar view — load from DB if available, else mock
   if (dashView === 'calendar') {
-    const loadCal = window._appState.calendarItems
-      ? Promise.resolve()
+    const loadCal = window.api && window.api.calendarGetData
+      ? window.api.calendarGetData().then(data => {
+          console.log('[Calendar] raw DB data:', data)
+          if ((data.events || []).length > 0) {
+            window._appState.calendarItems = data.events.map(e => ({
+              id: e.id,
+              title: e.title,
+              start: e.start || '',
+              end: e.end || '',
+              date: (e.start || '').slice(0, 10),
+              all_day: !!e.all_day,
+              allDay: !!e.all_day,
+              source: e.source || 'gcal',
+              account: e.account || '',
+              color: e.color || '#4285F4',
+              profile: 'work',
+            }))
+            console.log('[Calendar] mapped calendarItems:', window._appState.calendarItems)
+          } else {
+            console.warn('[Calendar] no events in DB')
+          }
+        })
       : fetch('./mock/calendar.json').then(r => r.json()).then(data => { window._appState.calendarItems = data })
     loadCal.then(() => window._renderCalendarUI()).catch(err => {
       container.innerHTML = `<div style="padding:40px; color:var(--danger);">Failed to load calendar: ${err.message}</div>`
@@ -1622,10 +1642,20 @@ window._renderJiraTable = function(items) {
 
 window._calState = {
   year: new Date().getFullYear(),
-  month: new Date().getMonth(), // 0-indexed
+  month: new Date().getMonth(),
+  weekOffset: 0,      // 0 = current week, -1 = last week, +1 = next week
   selectedDay: null,
   accountFilter: 'all',
-  workspaceFilter: 'all'
+}
+
+// Return Monday of the week at weekOffset from today
+window._calWeekStart = function() {
+  const now = new Date()
+  const dow = now.getDay() // 0=Sun
+  const monday = new Date(now)
+  monday.setDate(now.getDate() - (dow === 0 ? 6 : dow - 1) + window._calState.weekOffset * 7)
+  monday.setHours(0, 0, 0, 0)
+  return monday
 }
 
 window._renderCalendarUI = function() {
@@ -1633,114 +1663,252 @@ window._renderCalendarUI = function() {
   if (!container) return
 
   const cs = window._calState
-  const events = window._appState.calendarItems || []
+  const allEvents = window._appState.calendarItems || []
 
-  const accounts = [...new Set(events.map(e => e.account))]
-  const workspaces = [...new Set(events.map(e => e.workspace))]
-
-  // Filter events
+  const accounts = [...new Set(allEvents.map(e => e.account).filter(Boolean))]
   const activeProfile = window._briefingProfile || 'all'
-  let filtered = events
-  if (activeProfile !== 'all') filtered = filtered.filter(e => e.profile === activeProfile)
-  if (cs.accountFilter !== 'all') filtered = filtered.filter(e => e.account === cs.accountFilter)
-  if (cs.workspaceFilter !== 'all') filtered = filtered.filter(e => e.workspace === cs.workspaceFilter)
 
-  const monthName = new Date(cs.year, cs.month, 1).toLocaleString('default', { month: 'long', year: 'numeric' })
+  let events = allEvents
+  if (activeProfile !== 'all') events = events.filter(e => e.profile === activeProfile)
+  if (cs.accountFilter !== 'all') events = events.filter(e => e.account === cs.accountFilter)
+
+  // Week range
+  const weekStart = window._calWeekStart()
+  const weekDays = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(weekStart)
+    d.setDate(weekStart.getDate() + i)
+    return d
+  })
+  const weekEnd = weekDays[6]
+
+  const todayStr = new Date().toISOString().split('T')[0]
+
+  // Format week label
+  const fmtShort = d => d.toLocaleDateString('default', { month: 'short', day: 'numeric' })
+  const weekLabel = fmtShort(weekStart) + ' – ' + fmtShort(weekEnd) + ', ' + weekStart.getFullYear()
+
+  // Build event map keyed by YYYY-MM-DD
+  const eventMap = {}
+  events.forEach(ev => {
+    const key = (ev.start || ev.date || '').slice(0, 10)
+    if (!key) return
+    if (!eventMap[key]) eventMap[key] = []
+    eventMap[key].push(ev)
+  })
+
+  // Upcoming events = everything from today forward, next 14 days
+  const upcoming = events
+    .filter(ev => {
+      const d = (ev.start || ev.date || '').slice(0, 10)
+      return d >= todayStr
+    })
+    .sort((a, b) => (a.start || '').localeCompare(b.start || ''))
+    .slice(0, 20)
+
+  const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
   container.innerHTML = `
     <div style="display:flex; flex-direction:column; height:100%; overflow:hidden;">
 
       <!-- Toolbar -->
       <div style="
-        padding:12px 20px; background:var(--bg-surface);
+        padding:10px 20px; background:var(--bg-surface);
         border-bottom:1px solid var(--border);
-        display:flex; align-items:center; gap:12px; flex-shrink:0;
+        display:flex; align-items:center; gap:10px; flex-shrink:0;
       ">
-        <!-- Month nav -->
         <div style="display:flex; align-items:center; gap:4px;">
           <button onclick="window._calNav(-1)" style="
-            width:28px; height:28px; border-radius:var(--radius);
+            width:27px; height:27px; border-radius:var(--radius);
             background:transparent; border:1px solid var(--border);
-            color:var(--text-secondary); cursor:pointer; display:flex; align-items:center; justify-content:center;
-            transition:border-color 0.15s;
+            color:var(--text-secondary); cursor:pointer;
+            display:flex; align-items:center; justify-content:center;
           " onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
-            <i data-lucide="chevron-left" style="width:13px; height:13px;"></i>
+            <i data-lucide="chevron-left" style="width:13px;height:13px;"></i>
           </button>
-          <span style="font-size:14px; font-weight:600; color:var(--text-primary); min-width:148px; text-align:center;">${monthName}</span>
+          <span style="font-size:13px; font-weight:600; color:var(--text-primary); min-width:180px; text-align:center; padding:0 4px;">
+            ${weekLabel}
+          </span>
           <button onclick="window._calNav(1)" style="
-            width:28px; height:28px; border-radius:var(--radius);
+            width:27px; height:27px; border-radius:var(--radius);
             background:transparent; border:1px solid var(--border);
-            color:var(--text-secondary); cursor:pointer; display:flex; align-items:center; justify-content:center;
-            transition:border-color 0.15s;
+            color:var(--text-secondary); cursor:pointer;
+            display:flex; align-items:center; justify-content:center;
           " onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
-            <i data-lucide="chevron-right" style="width:13px; height:13px;"></i>
+            <i data-lucide="chevron-right" style="width:13px;height:13px;"></i>
           </button>
         </div>
 
         <button onclick="window._calGoToday()" style="
-          padding:5px 12px; border-radius:var(--radius);
+          padding:5px 11px; border-radius:var(--radius);
           background:transparent; border:1px solid var(--border);
-          color:var(--text-secondary); font-size:12px; font-weight:600;
+          color:var(--text-secondary); font-size:12px; font-weight:500;
           font-family:'IBM Plex Sans',sans-serif; cursor:pointer;
-          transition:border-color 0.15s;
-        " onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">Today</button>
+        " onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">
+          Today
+        </button>
 
         <div style="flex:1;"></div>
 
-        <!-- Source legend -->
-        <div style="display:flex; align-items:center; gap:12px; margin-right:4px;">
-          <span style="display:flex; align-items:center; gap:5px; font-size:12px; color:var(--text-muted);">
-            <img src="../assets/google-calendar.svg" style="width:13px; height:13px; opacity:0.8;" /> Google Cal
-          </span>
-          <span style="display:flex; align-items:center; gap:5px; font-size:12px; color:var(--text-muted);">
-            <img src="../assets/outlook.svg" style="width:13px; height:13px; opacity:0.8;" /> Outlook
-          </span>
-        </div>
+        <span style="display:flex; align-items:center; gap:5px; font-size:12px; color:var(--text-muted);">
+          <img src="../assets/google-calendar.svg" style="width:13px;height:13px;opacity:0.75;"> Google Calendar
+        </span>
 
-        <!-- Account filter -->
-        <select onchange="window._calFilter('account', this.value)" style="
-          background:var(--bg-raised); border:1px solid var(--border);
-          border-radius:var(--radius); padding:6px 10px;
-          font-size:12px; color:var(--text-primary);
-          font-family:'IBM Plex Sans',sans-serif; outline:none; cursor:pointer;
-        ">
-          <option value="all" ${cs.accountFilter === 'all' ? 'selected' : ''}>All Accounts</option>
-          ${accounts.map(a => `<option value="${a}" ${cs.accountFilter === a ? 'selected' : ''}>${a}</option>`).join('')}
-        </select>
-
-        <!-- Workspace filter -->
-        <select onchange="window._calFilter('workspace', this.value)" style="
-          background:var(--bg-raised); border:1px solid var(--border);
-          border-radius:var(--radius); padding:6px 10px;
-          font-size:12px; color:var(--text-primary);
-          font-family:'IBM Plex Sans',sans-serif; outline:none; cursor:pointer;
-        ">
-          <option value="all" ${cs.workspaceFilter === 'all' ? 'selected' : ''}>All Workspaces</option>
-          ${workspaces.map(w => `<option value="${w}" ${cs.workspaceFilter === w ? 'selected' : ''}>${w}</option>`).join('')}
-        </select>
+        ${accounts.length > 1 ? `
+          <select onchange="window._calFilter('account', this.value)" style="
+            background:var(--bg-raised); border:1px solid var(--border);
+            border-radius:var(--radius); padding:5px 9px;
+            font-size:12px; color:var(--text-primary);
+            font-family:'IBM Plex Sans',sans-serif; outline:none; cursor:pointer;
+          ">
+            <option value="all" ${cs.accountFilter === 'all' ? 'selected' : ''}>All accounts</option>
+            ${accounts.map(a => `<option value="${a}" ${cs.accountFilter === a ? 'selected' : ''}>${a}</option>`).join('')}
+          </select>
+        ` : ''}
       </div>
 
-      <!-- Browser profile navbar -->
-      ${window._renderProfileNavbar(events)}
+      <!-- Profile navbar -->
+      ${window._renderProfileNavbar(allEvents)}
 
-      <!-- Calendar grid + detail panel -->
+      <!-- Body: week grid + upcoming sidebar -->
       <div style="flex:1; display:flex; overflow:hidden;">
 
-        <!-- Grid -->
-        <div style="flex:1; overflow-y:auto; padding:0;">
-          ${window._renderCalGrid(cs.year, cs.month, filtered, cs.selectedDay)}
+        <!-- Week grid -->
+        <div style="flex:1; overflow-y:auto; background:var(--bg-base);">
+
+          <!-- Day header row -->
+          <div style="
+            display:grid; grid-template-columns: repeat(7, 1fr);
+            background:var(--bg-surface);
+            border-bottom:1px solid var(--border);
+            position:sticky; top:0; z-index:2;
+          ">
+            ${weekDays.map((d, i) => {
+              const ds = d.toISOString().split('T')[0]
+              const isToday = ds === todayStr
+              const dayEvCount = (eventMap[ds] || []).length
+              return `
+                <div onclick="window._calSelectDay('${ds}')" style="
+                  padding:10px 10px 8px; cursor:pointer; text-align:center;
+                  border-right:${i < 6 ? '1px solid var(--border-subtle)' : 'none'};
+                  background:${cs.selectedDay === ds ? 'var(--accent-muted)' : 'transparent'};
+                  transition:background 0.1s;
+                " onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='${cs.selectedDay === ds ? 'var(--accent-muted)' : 'transparent'}'">
+                  <div style="font-size:10px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:4px;">${DAY_LABELS[i]}</div>
+                  <div style="
+                    width:28px; height:28px; border-radius:50%; margin:0 auto;
+                    display:flex; align-items:center; justify-content:center;
+                    font-size:13px; font-weight:${isToday ? '700' : '500'};
+                    background:${isToday ? 'var(--accent)' : 'transparent'};
+                    color:${isToday ? '#fff' : cs.selectedDay === ds ? 'var(--accent)' : 'var(--text-primary)'};
+                  ">${d.getDate()}</div>
+                  ${dayEvCount > 0 ? `<div style="margin-top:3px; font-size:10px; color:${isToday ? 'var(--accent)' : 'var(--text-muted)'};">${dayEvCount} event${dayEvCount > 1 ? 's' : ''}</div>` : '<div style="margin-top:3px; height:14px;"></div>'}
+                </div>
+              `
+            }).join('')}
+          </div>
+
+          <!-- Event rows per day -->
+          <div style="display:grid; grid-template-columns:repeat(7,1fr); min-height:calc(100% - 72px);">
+            ${weekDays.map((d, i) => {
+              const ds = d.toISOString().split('T')[0]
+              const dayEvs = (eventMap[ds] || []).sort((a,b) => (a.start||'').localeCompare(b.start||''))
+              const isToday = ds === todayStr
+              const isSelected = cs.selectedDay === ds
+              const isWeekend = i >= 5
+
+              return `
+                <div onclick="window._calSelectDay('${ds}')" style="
+                  min-height:180px; padding:8px 6px; cursor:pointer;
+                  border-right:${i < 6 ? '1px solid var(--border-subtle)' : 'none'};
+                  border-top:1px solid var(--border-subtle);
+                  background:${isSelected ? 'var(--accent-muted)' : isWeekend ? 'rgba(0,0,0,0.01)' : 'transparent'};
+                  transition:background 0.1s;
+                " onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='${isSelected ? 'var(--accent-muted)' : isWeekend ? 'rgba(0,0,0,0.01)' : 'transparent'}'">
+                  ${dayEvs.length === 0
+                    ? `<div style="height:100%; display:flex; align-items:flex-start; justify-content:center; padding-top:20px;">
+                        <span style="font-size:11px; color:var(--border); user-select:none;">—</span>
+                       </div>`
+                    : dayEvs.map(ev => {
+                        const hasTime = ev.start && ev.start.includes('T') && !ev.all_day
+                        const timeLabel = hasTime ? window._calFmtTime(ev.start) : ''
+                        const endLabel = (hasTime && ev.end && ev.end.includes('T')) ? window._calFmtTime(ev.end) : ''
+                        const color = ev.color || '#4285F4'
+                        return `
+                          <div style="
+                            margin-bottom:4px; padding:5px 7px;
+                            background:${color}18; border-left:3px solid ${color};
+                            border-radius:0 var(--radius-sm) var(--radius-sm) 0;
+                            cursor:pointer;
+                          ">
+                            <div style="font-size:12px; font-weight:500; color:var(--text-primary); line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${ev.title}</div>
+                            ${timeLabel ? `<div style="font-size:10px; color:var(--text-muted); margin-top:1px;">${timeLabel}${endLabel ? ' – ' + endLabel : ''}</div>` : `<div style="font-size:10px; color:${color}; margin-top:1px;">All day</div>`}
+                          </div>
+                        `
+                      }).join('')
+                  }
+                </div>
+              `
+            }).join('')}
+          </div>
         </div>
 
-        <!-- Day detail panel -->
-        <div id="cal-detail" style="
-          width:260px; min-width:260px; flex-shrink:0;
+        <!-- Upcoming sidebar -->
+        <div style="
+          width:240px; min-width:240px; flex-shrink:0;
           border-left:1px solid var(--border);
-          background:var(--bg-raised);
-          overflow-y:auto;
-          transition:width 0.2s;
+          background:var(--bg-surface);
+          overflow-y:auto; display:flex; flex-direction:column;
         ">
-          ${window._renderDayDetail(cs.selectedDay, filtered)}
+          <div style="padding:14px 16px 10px; border-bottom:1px solid var(--border-subtle); flex-shrink:0;">
+            <div style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.08em;">Upcoming</div>
+          </div>
+
+          ${upcoming.length === 0 ? `
+            <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:24px; text-align:center;">
+              <i data-lucide="calendar-x" style="width:22px;height:22px;color:var(--border);margin-bottom:10px;"></i>
+              <div style="font-size:12px; color:var(--text-muted);">No upcoming events</div>
+            </div>
+          ` : (() => {
+            // Group upcoming by date
+            const groups = {}
+            upcoming.forEach(ev => {
+              const ds = (ev.start || ev.date || '').slice(0, 10)
+              if (!groups[ds]) groups[ds] = []
+              groups[ds].push(ev)
+            })
+            return Object.entries(groups).map(([ds, evs]) => {
+              const d = new Date(ds + 'T00:00:00')
+              const isToday = ds === todayStr
+              const isTomorrow = ds === new Date(Date.now() + 86400000).toISOString().split('T')[0]
+              const dayLabel = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : d.toLocaleDateString('default', { weekday: 'short', month: 'short', day: 'numeric' })
+              return `
+                <div style="padding:10px 16px 6px; border-bottom:1px solid var(--border-subtle);">
+                  <div style="font-size:11px; font-weight:600; color:${isToday ? 'var(--accent)' : 'var(--text-secondary)'}; margin-bottom:6px;">${dayLabel}</div>
+                  ${evs.map(ev => {
+                    const hasTime = ev.start && ev.start.includes('T') && !ev.all_day
+                    const timeLabel = hasTime ? window._calFmtTime(ev.start) : 'All day'
+                    const color = ev.color || '#4285F4'
+                    return `
+                      <div style="
+                        display:flex; gap:8px; align-items:flex-start;
+                        margin-bottom:6px; padding:6px 8px;
+                        background:var(--bg-raised); border-radius:var(--radius);
+                        border-left:3px solid ${color};
+                      ">
+                        <div style="flex:1; min-width:0;">
+                          <div style="font-size:12px; font-weight:500; color:var(--text-primary); line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${ev.title}</div>
+                          <div style="font-size:11px; color:var(--text-muted); margin-top:1px;">${timeLabel}</div>
+                          ${ev.account ? `<div style="font-size:10px; color:var(--text-muted); margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${ev.account}</div>` : ''}
+                        </div>
+                      </div>
+                    `
+                  }).join('')}
+                </div>
+              `
+            }).join('')
+          })()}
         </div>
+
       </div>
     </div>
   `
@@ -1748,174 +1916,29 @@ window._renderCalendarUI = function() {
   if (typeof lucide !== 'undefined') lucide.createIcons()
 }
 
-window._renderCalGrid = function(year, month, events, selectedDay) {
-  const firstDay = new Date(year, month, 1)
-  const lastDay = new Date(year, month + 1, 0)
-  const startDow = firstDay.getDay() // 0=Sun
-  const totalDays = lastDay.getDate()
-  const today = new Date()
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`
-
-  // Build a map: dateStr → events[]
-  const eventMap = {}
-  events.forEach(ev => {
-    const dateStr = ev.start.slice(0, 10)
-    if (!eventMap[dateStr]) eventMap[dateStr] = []
-    eventMap[dateStr].push(ev)
-  })
-
-  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-
-  let cells = ''
-
-  // Empty cells before month start
-  for (let i = 0; i < startDow; i++) {
-    cells += `<div style="min-height:90px; padding:6px; background:var(--bg-base); border-right:1px solid var(--border-subtle); border-bottom:1px solid var(--border-subtle);"></div>`
-  }
-
-  for (let d = 1; d <= totalDays; d++) {
-    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`
-    const dayEvents = eventMap[dateStr] || []
-    const isToday = dateStr === todayStr
-    const isSelected = dateStr === selectedDay
-    const isWeekend = (startDow + d - 1) % 7 === 0 || (startDow + d - 1) % 7 === 6
-
-    cells += `
-      <div onclick="window._calSelectDay('${dateStr}')" style="
-        min-height:90px; padding:6px; cursor:pointer;
-        background:${isSelected ? 'var(--accent-muted)' : isWeekend ? 'rgba(255,255,255,0.01)' : 'var(--bg-base)'};
-        border-right:1px solid var(--border-subtle);
-        border-bottom:1px solid var(--border-subtle);
-        border-left:${isSelected ? '2px solid var(--accent)' : '2px solid transparent'};
-        transition:background 0.1s;
-      " onmouseover="if(!${isSelected}) this.style.background='var(--bg-hover)'" onmouseout="if(!${isSelected}) this.style.background='${isWeekend ? 'rgba(255,255,255,0.01)' : 'var(--bg-base)'}'">
-        <div style="
-          font-size:12px; font-weight:${isToday ? '700' : '400'};
-          color:${isToday ? '#fff' : isSelected ? 'var(--accent)' : isWeekend ? 'var(--text-muted)' : 'var(--text-secondary)'};
-          margin-bottom:4px;
-          ${isToday ? `background:var(--accent); width:20px; height:20px; border-radius:50%; display:flex; align-items:center; justify-content:center;` : ''}
-        ">${d}</div>
-        <div style="display:flex; flex-direction:column; gap:2px;">
-          ${dayEvents.slice(0, 3).map(ev => `
-            <div style="
-              font-size:11px; color:#fff;
-              background:${ev.color || 'var(--accent)'};
-              border-radius:3px; padding:1px 5px;
-              white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-              opacity:0.9;
-            ">
-              ${ev.allDay ? '' : `<span style="opacity:0.75;">${window._fmtTime(ev.start)} </span>`}${ev.title}
-            </div>
-          `).join('')}
-          ${dayEvents.length > 3 ? `<div style="font-size:10px; color:var(--text-muted); padding-left:2px;">+${dayEvents.length - 3} more</div>` : ''}
-        </div>
-      </div>
-    `
-  }
-
-  // Fill trailing cells to complete the last row
-  const totalCells = startDow + totalDays
-  const remainder = totalCells % 7
-  if (remainder !== 0) {
-    for (let i = 0; i < 7 - remainder; i++) {
-      cells += `<div style="min-height:90px; padding:6px; background:var(--bg-base); border-right:1px solid var(--border-subtle); border-bottom:1px solid var(--border-subtle);"></div>`
-    }
-  }
-
-  return `
-    <div style="display:grid; grid-template-columns:repeat(7,1fr); border-top:1px solid var(--border); border-left:1px solid var(--border-subtle);">
-      ${days.map(d => `
-        <div style="
-          padding:8px 8px 6px; text-align:left;
-          font-size:11px; font-weight:600; color:var(--text-muted);
-          text-transform:uppercase; letter-spacing:0.06em;
-          background:var(--bg-surface); border-right:1px solid var(--border-subtle);
-          border-bottom:1px solid var(--border); position:sticky; top:0; z-index:1;
-        ">${d}</div>
-      `).join('')}
-      ${cells}
-    </div>
-  `
-}
-
-window._renderDayDetail = function(dateStr, events) {
-  if (!dateStr) {
-    return `
-      <div style="
-        display:flex; flex-direction:column; align-items:center; justify-content:center;
-        height:100%; padding:24px; text-align:center;
-      ">
-        <i data-lucide="calendar" style="width:28px; height:28px; color:var(--text-muted); margin-bottom:12px;"></i>
-        <p style="font-size:13px; color:var(--text-muted); margin:0;">Select a day to see its events.</p>
-      </div>
-    `
-  }
-
-  const date = new Date(dateStr + 'T00:00:00')
-  const label = date.toLocaleDateString('default', { weekday: 'long', month: 'long', day: 'numeric' })
-  const dayEvents = events.filter(e => e.start.slice(0, 10) === dateStr)
-    .sort((a, b) => a.start.localeCompare(b.start))
-
-  const sourceIcon = {
-    gcal: `<img src="../assets/google-calendar.svg" style="width:12px;height:12px;flex-shrink:0;" />`,
-    outlook: `<img src="../assets/outlook.svg" style="width:12px;height:12px;flex-shrink:0;" />`
-  }
-
-  return `
-    <div style="padding:16px;">
-      <div style="font-size:13px; font-weight:600; color:var(--text-primary); margin-bottom:14px; padding-bottom:10px; border-bottom:1px solid var(--border-subtle);">${label}</div>
-      ${dayEvents.length === 0
-        ? `<div style="font-size:12px; color:var(--text-muted); text-align:center; padding:24px 0;">No events</div>`
-        : dayEvents.map(ev => `
-          <div style="
-            margin-bottom:8px; padding:10px 12px;
-            background:var(--bg-raised); border-radius:var(--radius);
-            border-left:3px solid ${ev.color || 'var(--accent)'};
-          ">
-            <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:6px; margin-bottom:4px;">
-              <div style="font-size:13px; font-weight:500; color:var(--text-primary); line-height:1.3;">${ev.title}</div>
-              ${sourceIcon[ev.source] || ''}
-            </div>
-            <div style="font-size:11px; color:var(--text-muted);">
-              ${ev.allDay
-                ? `<span style="color:var(--accent);">All day</span>`
-                : `${window._fmtTime(ev.start)} – ${window._fmtTime(ev.end)}`
-              }
-            </div>
-            ${ev.account ? `<div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${ev.account}</div>` : ''}
-            ${ev.workspace ? `<div style="display:inline-block; margin-top:5px; font-size:10px; font-weight:600; color:var(--text-muted); background:var(--bg-hover); border-radius:3px; padding:1px 6px;">${ev.workspace}</div>` : ''}
-          </div>
-        `).join('')
-      }
-    </div>
-  `
-}
-
-window._fmtTime = function(isoStr) {
+window._calFmtTime = function(isoStr) {
   if (!isoStr || !isoStr.includes('T')) return ''
-  const d = new Date(isoStr)
-  return d.toLocaleTimeString('default', { hour: 'numeric', minute: '2-digit', hour12: true })
+  const [, timePart] = isoStr.split('T')
+  const [h, m] = timePart.split(':').map(Number)
+  const ampm = h >= 12 ? 'pm' : 'am'
+  const h12 = h % 12 || 12
+  return `${h12}${m > 0 ? ':' + String(m).padStart(2,'0') : ''}${ampm}`
 }
 
 window._calNav = function(delta) {
-  window._calState.month += delta
-  if (window._calState.month > 11) { window._calState.month = 0; window._calState.year++ }
-  if (window._calState.month < 0)  { window._calState.month = 11; window._calState.year-- }
+  window._calState.weekOffset += delta
   window._calState.selectedDay = null
   window._renderCalendarUI()
 }
 
 window._calGoToday = function() {
-  const now = new Date()
-  window._calState.year = now.getFullYear()
-  window._calState.month = now.getMonth()
+  window._calState.weekOffset = 0
   window._calState.selectedDay = null
   window._renderCalendarUI()
 }
 
 window._calSelectDay = function(dateStr) {
   window._calState.selectedDay = window._calState.selectedDay === dateStr ? null : dateStr
-  // Re-render just the grid and panel cheaply
   window._renderCalendarUI()
 }
 

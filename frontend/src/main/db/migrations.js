@@ -28,6 +28,15 @@ const MIGRATIONS = [
     ALTER TABLE jira_items ADD COLUMN estimate TEXT;
     ALTER TABLE jira_items ADD COLUMN issue_type TEXT;
   `) },
+  { version: 6, up: (db) => db.exec(`
+    CREATE TABLE IF NOT EXISTS calendar_sources (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT NOT NULL UNIQUE,
+      label TEXT NOT NULL,
+      partition TEXT NOT NULL,
+      added_at INTEGER NOT NULL
+    );
+  `) },
 ]
 
 function runMigrations(db) {

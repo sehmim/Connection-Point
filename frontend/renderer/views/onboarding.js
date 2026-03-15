@@ -2,8 +2,9 @@
 // Single-step flow — enter GitHub repo URLs and Jira board URLs
 
 window._onboardingState = {
-  repos: [],  // [{ url, hostname, label, sessionLabel }]  — GitHub
-  boards: [], // [{ url, hostname, label, sessionLabel }]  — Jira
+  repos: [],     // [{ url, hostname, label, sessionLabel }]  — GitHub
+  boards: [],    // [{ url, hostname, label, sessionLabel }]  — Jira
+  calendars: [], // [{ email, label, sessionLabel }]          — Google Calendar
 }
 
 // ── GitHub helpers ────────────────────────────────────────────────────────────
@@ -180,12 +181,99 @@ function _renderOnboardingBoards() {
   `
 }
 
+// ── Google Calendar helpers ───────────────────────────────────────────────────
+
+function _isValidCalendarEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+}
+
+function _onboardingCalInputChanged() {
+  const input = document.getElementById('ob-cal-input')
+  const btn = document.getElementById('ob-cal-connect-btn')
+  if (!input || !btn) return
+  const email = input.value.trim()
+  const valid = _isValidCalendarEmail(email)
+  const duplicate = window._onboardingState.calendars.some(c => c.email === email)
+  btn.style.display = valid ? 'inline-flex' : 'none'
+  btn.disabled = duplicate
+  btn.title = duplicate ? 'Already connected' : ''
+}
+
+async function _onboardingCalConnect() {
+  const input = document.getElementById('ob-cal-input')
+  const btn = document.getElementById('ob-cal-connect-btn')
+  if (!input) return
+  const email = input.value.trim()
+  if (!_isValidCalendarEmail(email)) return
+
+  btn.disabled = true
+  btn.textContent = 'Connecting…'
+
+  try {
+    const result = await window.api.connectCalendarSource(email)
+    if (!result.authed) {
+      window.showToast('Login cancelled — try again', 'error')
+      return
+    }
+    const sessionLabel = result.cached ? 'session reused' : 'session saved'
+    window._onboardingState.calendars.push({ email, label: email, sessionLabel })
+    input.value = ''
+    _renderOnboardingCalendars()
+    _updateContinueBtn()
+  } catch (err) {
+    window.showToast('Failed to connect calendar: ' + (err.message || err), 'error')
+  } finally {
+    btn.textContent = 'Connect'
+    btn.disabled = false
+    btn.style.display = 'none'
+  }
+}
+
+function _onboardingRemoveCalendar(idx) {
+  window._onboardingState.calendars.splice(idx, 1)
+  _renderOnboardingCalendars()
+  _updateContinueBtn()
+}
+
+function _renderOnboardingCalendars() {
+  const container = document.getElementById('ob-calendars-container')
+  if (!container) return
+
+  const calendars = window._onboardingState.calendars
+  if (calendars.length === 0) {
+    container.innerHTML = ''
+    return
+  }
+
+  container.innerHTML = `
+    <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">Connected accounts:</div>
+    <div style="display:flex; flex-wrap:wrap; gap:8px;">
+      ${calendars.map((c, i) => `
+        <span style="
+          display:inline-flex; align-items:center; gap:6px;
+          background:var(--bg-raised); border:1px solid var(--border);
+          border-radius:var(--radius); padding:4px 10px; font-size:12px;
+          color:var(--text-primary);
+        ">
+          ${c.email}
+          <span style="font-size:10px; color:var(--text-muted);">(${c.sessionLabel})</span>
+          <button
+            onclick="window._onboardingRemoveCalendar(${i})"
+            style="background:none; border:none; cursor:pointer; color:var(--text-muted); font-size:14px; line-height:1; padding:0 2px; margin-left:2px;"
+            title="Remove"
+          >×</button>
+        </span>
+      `).join('')}
+    </div>
+  `
+}
+
 // ── Continue button ───────────────────────────────────────────────────────────
 
 function _updateContinueBtn() {
   const btn = document.getElementById('ob-continue-btn')
   if (!btn) return
-  const hasAny = window._onboardingState.repos.length > 0 || window._onboardingState.boards.length > 0
+  const hasAny = window._onboardingState.repos.length > 0 || window._onboardingState.boards.length > 0 || window._onboardingState.calendars.length > 0
   btn.style.display = hasAny ? 'inline-flex' : 'none'
 }
 
@@ -195,6 +283,7 @@ async function _onboardingContinue() {
 
   const repos = window._onboardingState.repos
   const boards = window._onboardingState.boards
+  const calendars = window._onboardingState.calendars
 
   try {
     // Sync GitHub repos
@@ -217,6 +306,16 @@ async function _onboardingContinue() {
         })
       )
       await window.api.jiraSaveScrape({ boards, scrapes })
+    }
+
+    // Sync Google Calendar accounts
+    if (calendars.length > 0) {
+      await Promise.all(
+        calendars.map(async c => {
+          const result = await window.api.scrapeCalendarEvents(c.email)
+          await window.api.calendarSaveScrape({ email: c.email, label: c.label, events: result.events || [] })
+        })
+      )
     }
   } catch (err) {
     console.warn('[onboarding] Scrape/save failed:', err)
@@ -327,6 +426,46 @@ window.renderOnboarding = function () {
           <div id="ob-boards-container"></div>
         </div>
 
+        <!-- Divider -->
+        <div style="border-top:1px solid var(--border-subtle); margin-bottom:28px;"></div>
+
+        <!-- Google Calendar section -->
+        <div style="margin-bottom:28px;">
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+            <img src="../assets/google-calendar.svg" style="width:14px; height:14px;"
+              onerror="this.style.display='none'">
+            <span style="font-size:12px; font-weight:600; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.06em;">Google Calendar</span>
+          </div>
+          <div style="display:flex; gap:8px; margin-bottom:12px;">
+            <input
+              id="ob-cal-input"
+              type="email"
+              placeholder="you@gmail.com or you@company.com"
+              oninput="window._onboardingCalInputChanged()"
+              onkeydown="if(event.key==='Enter'){ const b=document.getElementById('ob-cal-connect-btn'); if(b&&!b.disabled) window._onboardingCalConnect() }"
+              style="
+                flex:1; padding:9px 12px; border:1px solid var(--border);
+                border-radius:var(--radius); background:var(--bg-base);
+                color:var(--text-primary); font-size:13px; outline:none;
+                transition:border-color 0.15s;
+              "
+              onfocus="this.style.borderColor='var(--accent)'"
+              onblur="this.style.borderColor='var(--border)'"
+            />
+            <button
+              id="ob-cal-connect-btn"
+              onclick="window._onboardingCalConnect()"
+              style="
+                display:none; align-items:center; gap:6px;
+                padding:9px 16px; background:var(--accent); color:#fff;
+                border:none; border-radius:var(--radius); font-size:13px;
+                font-weight:500; cursor:pointer; white-space:nowrap;
+              "
+            >Connect</button>
+          </div>
+          <div id="ob-calendars-container"></div>
+        </div>
+
         <button
           id="ob-continue-btn"
           onclick="window._onboardingContinue()"
@@ -346,6 +485,7 @@ window.renderOnboarding = function () {
   // Re-render state if navigated away and back
   if (window._onboardingState.repos.length > 0) _renderOnboardingRepos()
   if (window._onboardingState.boards.length > 0) _renderOnboardingBoards()
+  if (window._onboardingState.calendars.length > 0) _renderOnboardingCalendars()
   _updateContinueBtn()
 }
 
@@ -356,4 +496,7 @@ window._onboardingRemoveRepo = _onboardingRemoveRepo
 window._onboardingJiraInputChanged = _onboardingJiraInputChanged
 window._onboardingJiraConnect = _onboardingJiraConnect
 window._onboardingRemoveBoard = _onboardingRemoveBoard
+window._onboardingCalInputChanged = _onboardingCalInputChanged
+window._onboardingCalConnect = _onboardingCalConnect
+window._onboardingRemoveCalendar = _onboardingRemoveCalendar
 window._onboardingContinue = _onboardingContinue
